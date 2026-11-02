@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0b1424">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Gridiron</title>
+<link rel="icon" href="icon.svg">
+<script>
+/* The page must never zoom (Night Watch's Brave fix): a thumb held on the
+   screen while the other hand flails is exactly what a browser reads as a
+   pinch. Two-finger movement and gesture events are cancelled, and if a
+   browser zooms anyway the viewport tag is rewritten to snap it back. */
+(function(){
+  var opt = {passive: false};
+  function stop(e){ if(e.cancelable) e.preventDefault(); }
+  document.addEventListener('touchmove', function(e){ if(e.touches.length > 1 || (e.scale && e.scale !== 1)) stop(e); }, opt);
+  document.addEventListener('touchstart', function(e){ if(e.touches.length > 1) stop(e); }, opt);
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach(function(t){ document.addEventListener(t, stop, opt); });
+  document.addEventListener('dblclick', stop, opt);
+  var meta = document.querySelector('meta[name=viewport]'), base = meta.getAttribute('content'), timer = 0;
+  function unzoom(){
+    meta.setAttribute('content', base.replace('maximum-scale=1,', 'maximum-scale=1.01,'));
+    setTimeout(function(){ meta.setAttribute('content', base); }, 80);
+  }
+  if(window.visualViewport) visualViewport.addEventListener('resize', function(){
+    if(visualViewport.scale > 1.02){ clearTimeout(timer); timer = setTimeout(unzoom, 250); }
+  });
+})();
+</script>
+<style>
+:root { --bg:#0b1424; --ink:#f4f7fb; --dim:#9fb0c6; --gold:#ffd21f; --byu:#0062B8; --byud:#002E5D; --utah:#CC0000; --team:#0062B8; }
+* { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:16px/1.3 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow:hidden; overscroll-behavior:none; touch-action:none; -webkit-user-select:none; user-select:none; }
+.scr { position:fixed; inset:0; display:none; flex-direction:column; padding:max(14px, env(safe-area-inset-top)) 16px max(14px, env(safe-area-inset-bottom)); }
+.scr.on { display:flex; }
+h1 { font:900 44px/1 Impact, "Arial Black", sans-serif; margin:8px 0 2px; letter-spacing:.03em; text-align:center; }
+h1 .b { color:#5aa9ff; } h1 .u { color:#ff4646; }
+h2 { margin:6px 0; font-size:22px; text-align:center; }
+.dim { color:var(--dim); }
+.center { text-align:center; }
+input { font:inherit; font-size:20px; padding:12px 14px; border-radius:12px; border:2px solid #2c4470; background:#13213a; color:var(--ink); width:100%; text-align:center; }
+button { font:inherit; font-weight:800; font-size:18px; padding:14px; border-radius:14px; border:0; background:#22385d; color:var(--ink); touch-action:manipulation; }
+button.big { font-size:24px; padding:18px; background:var(--gold); color:#0b1424; }
+button.on { outline:3px solid var(--gold); }
+button:disabled { opacity:.35; }
+.teams { display:flex; gap:10px; margin:10px 0; }
+.teams button { flex:1; font-size:22px; padding:18px 8px; }
+.teams .byu { background:var(--byud); } .teams .utah { background:var(--utah); }
+.teams button.on { outline:4px solid var(--gold); }
+.stack { display:flex; flex-direction:column; gap:10px; }
+#bar { display:flex; justify-content:space-between; align-items:center; font-weight:800; font-size:15px; background:#13213a; border-radius:12px; padding:8px 12px; gap:8px; }
+#bar .clk { font-variant-numeric:tabular-nums; color:var(--gold); font-size:18px; }
+#main { flex:1; display:flex; flex-direction:column; justify-content:center; gap:10px; min-height:0; }
+.grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.grid button { padding:12px 8px; font-size:18px; text-align:left; }
+.grid button small { display:block; font-weight:500; font-size:12px; color:var(--dim); margin-top:2px; }
+.grid button.hot { background:#4d2a00; }
+#pad { flex:1; border-radius:22px; background:radial-gradient(circle at 50% 60%, #8a4b1d 0%, #5a2d0e 55%, #2b1606 100%); display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; position:relative; overflow:hidden; border:3px solid #ffffff22; }
+#pad.held { border-color:var(--gold); box-shadow:inset 0 0 60px #ffd21f55; }
+#pad .laces { position:absolute; left:50%; top:16%; bottom:16%; width:10px; transform:translateX(-50%); background:repeating-linear-gradient(0deg, #fff 0 6px, transparent 6px 22px); opacity:.55; border-left:3px solid #fff8; border-right:3px solid #fff8; }
+#pad .say { position:relative; font:900 30px/1.1 Impact, "Arial Black", sans-serif; letter-spacing:.03em; text-shadow:0 2px 0 #0008; padding:0 12px; }
+#pad .say small { display:block; font:600 15px/1.3 system-ui, sans-serif; margin-top:8px; color:#ffe9c8; }
+#meter { position:absolute; left:10px; bottom:10px; top:10px; width:10px; border-radius:999px; background:#0006; overflow:hidden; }
+#meter i { position:absolute; bottom:0; left:0; right:0; background:linear-gradient(0deg, #3cf, #ffd21f, #ff4b2b); height:0; }
+#steer { height:44%; display:flex; align-items:center; justify-content:center; font:900 34px Impact, sans-serif; border-radius:22px; background:#13213a; position:relative; }
+#steer i { position:absolute; top:10%; bottom:10%; width:8px; background:var(--gold); border-radius:4px; left:50%; }
+.row { display:flex; gap:8px; }
+.row > * { flex:1; }
+#toast { position:fixed; left:50%; top:62px; transform:translateX(-50%); font:900 22px/1.1 Impact, sans-serif; letter-spacing:.03em; background:#000c; border:2px solid var(--gold); padding:8px 16px; border-radius:999px; pointer-events:none; opacity:0; transition:opacity .2s; text-align:center; white-space:nowrap; max-width:92vw; overflow:hidden; z-index:5; }
+#toast.on { opacity:1; }
+.chips { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; }
+.chips button { font-size:13px; padding:8px 10px; font-weight:700; }
+.res td { padding:4px 8px; }
+#lockPhone { width:110px; height:190px; margin:10px auto; border:4px solid #fff; border-radius:18px; position:relative; transform:rotate(-8deg); }
+#lockPhone::after { content:'▲ TV'; position:absolute; top:-30px; left:50%; transform:translateX(-50%); font-weight:900; color:var(--gold); }
+.foot { display:flex; gap:8px; margin-top:8px; }
+.foot button { flex:1; font-size:13px; padding:9px; background:#13213a; color:var(--dim); }
+</style>
+</head>
+<body>
+
+<!-- joining -->
+<div class="scr on" id="sJoin">
+  <h1><span class="b">GRID</span><span class="u">IRON</span></h1>
+  <div class="center dim" style="margin-bottom:14px">Your phone is the football</div>
+  <div class="stack">
+    <input id="inCode" placeholder="ROOM CODE" maxlength="4" autocapitalize="characters" autocomplete="off">
+    <input id="inName" placeholder="Your name" maxlength="14" autocomplete="off">
+    <div class="teams"><button class="byu" data-team="byu">BYU</button><button class="utah" data-team="utah">UTAH</button></div>
+    <button class="big" id="btnJoin">JOIN</button>
+    <div class="center dim" id="joinMsg"></div>
+  </div>
+</div>
+
+<!-- point at the TV -->
+<div class="scr" id="sLock">
+  <h2>Point the top of your phone at the TV</h2>
+  <div id="lockPhone"></div>
+  <div class="center dim">Hold it like the football: the top of the phone is the nose. Point it straight at the TV, then tap LOCK.<br><br>Do this again any time the aim drifts.</div>
+  <div style="flex:1"></div>
+  <div class="stack">
+    <button class="big" id="btnLock">LOCK</button>
+    <button id="btnSwipe">No sensors? Use swipe instead</button>
+  </div>
+</div>
+
+<!-- everything else -->
+<div class="scr" id="sGame">
+  <div id="bar"><span id="barL"></span><span class="clk" id="barC"></span><span id="barR"></span></div>
+  <div id="main"></div>
+  <div class="foot"><button id="btnRelock">⌖ RE-AIM</button><button id="btnMode">SWIPE MODE</button><button id="btnTeam">TEAM</button></div>
+</div>
+<div id="toast"></div>
+
+<script src="net.js"></script>
+<script src="throw.js"></script>
+<script>
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+var sense = new GThrow.ThrowSense({onSpike: function(){ onSpikeGesture(); }});
+var conn = null, st = null, joined = false, swipe = false, sensorsSeen = false;
+// ?pid= is for the headless check, whose phones share one browser's storage
+var pidArg = (location.search.match(/[?&]pid=(\w+)/) || [])[1];
+var myId = pidArg || load('gridiron_id') || ('d' + Math.random().toString(36).slice(2, 10));
+if(!pidArg) save('gridiron_id', myId);
+window.GRID_PHONE = {id: myId};
+var myTeam = load('gridiron_team') || 'byu', myName = load('gridiron_name') || '';
+function load(k){ try { return localStorage.getItem(k); } catch(e){ return null; } }
+function save(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+
+/* ---------- joining ---------- */
+$('inCode').value = (location.hash || '').replace('#', '').toUpperCase().slice(0, 4);
+$('inName').value = myName;
+function paintTeam(){
+  document.querySelectorAll('[data-team]').forEach(function(b){ b.classList.toggle('on', b.dataset.team === myTeam); });
+  document.documentElement.style.setProperty('--team', myTeam === 'utah' ? '#CC0000' : '#0062B8');
+}
+paintTeam();
+document.querySelectorAll('[data-team]').forEach(function(b){ b.onclick = function(){ myTeam = b.dataset.team; save('gridiron_team', myTeam); paintTeam(); }; });
+
+function askMotion(){
+  // iOS: only from inside a tap, and before anything else in it
+  var ps = [];
+  if(window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') ps.push(DeviceMotionEvent.requestPermission().catch(function(){}));
+  if(window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === 'function') ps.push(DeviceOrientationEvent.requestPermission().catch(function(){}));
+  return Promise.all(ps);
+}
+var wake = null;
+function keepAwake(){
+  try { if(navigator.wakeLock && !wake) navigator.wakeLock.request('screen').then(function(w){ wake = w; w.addEventListener('release', function(){ wake = null; }); }).catch(function(){}); } catch(e){}
+}
+document.addEventListener('visibilitychange', function(){ if(!document.hidden) keepAwake(); });
+function goFull(){
+  var el = document.documentElement;
+  if(el.requestFullscreen && !matchMedia('(pointer:fine)').matches)
+    el.requestFullscreen({navigationUI: 'hide'}).then(function(){ return screen.orientation && screen.orientation.lock && screen.orientation.lock('portrait'); }).catch(function(){});
+}
+
+$('btnJoin').onclick = function(){
+  askMotion();
+  goFull(); keepAwake();
+  var code = $('inCode').value.trim().toUpperCase();
+  myName = $('inName').value.trim() || 'Player';
+  save('gridiron_name', myName);
+  if(code.length !== 4){ $('joinMsg').textContent = 'The room code is the four letters on the TV.'; return; }
+  location.hash = code;
+  connect(code);
+};
+var joining = null, retry = 0;
+function connect(code){
+  $('joinMsg').textContent = 'Joining ' + code + '…';
+  if(joining) joining.destroy();
+  joining = GNet.join(code, {
+    open: function(c){
+      conn = c; retry = 0;
+      c.on('data', onData);
+      c.on('close', function(){ conn = null; toast('RECONNECTING'); setTimeout(function(){ connect(code); }, 1500); });
+      send({t: 'hello', id: myId, name: myName, team: myTeam});
+      if(!joined){ joined = true; show(sensorsSeen || swipe ? 'sGame' : 'sLock'); setTimeout(checkSensors, 1500); }
+    },
+    error: function(e){
+      $('joinMsg').textContent = e === 'peer-unavailable' ? 'No room ' + code + '. Check the code on the TV.' : 'Could not connect (' + e + '). Trying again…';
+      if(joined || e !== 'peer-unavailable') setTimeout(function(){ connect(code); }, 2000 + Math.min(8000, (retry++) * 1000));
+    }
+  });
+}
+function send(m){ if(conn) try { conn.send(m); } catch(e){} }
+function show(id){ ['sJoin', 'sLock', 'sGame'].forEach(function(s){ $(s).classList.toggle('on', s === id); }); }
+
+/* ---------- the sensors ---------- */
+addEventListener('deviceorientation', function(e){
+  if(e.alpha == null && e.beta == null) return;
+  sensorsSeen = true;
+  sense.orientation(e.alpha, e.beta, e.gamma);
+  tilt = e.gamma || 0;
+});
+var lastMotionT = 0;
+addEventListener('devicemotion', function(e){
+  var now = performance.now();
+  var dt = e.interval ? (e.interval > 1 ? e.interval / 1000 : e.interval) : (now - lastMotionT) / 1000;
+  lastMotionT = now;
+  if(e.rotationRate && e.rotationRate.alpha != null) sensorsSeen = true;
+  sense.motion(e.rotationRate, e.acceleration, e.accelerationIncludingGravity, dt, now);
+});
+function checkSensors(){
+  if(!sensorsSeen){ swipe = true; paintMode(); show('sGame'); toast('SWIPE MODE'); }
+}
+$('btnLock').onclick = function(){
+  if(sense.lock()){ toast('LOCKED'); vibrate(40); show('sGame'); }
+  else { swipe = true; paintMode(); show('sGame'); toast('SWIPE MODE'); }
+};
+$('btnSwipe').onclick = function(){ swipe = true; paintMode(); show('sGame'); };
+$('btnRelock').onclick = function(){ if(swipe && !sensorsSeen) return toast('NO SENSORS'); show('sLock'); };
+$('btnMode').onclick = function(){ swipe = !swipe; if(!swipe && !sensorsSeen){ swipe = true; toast('NO SENSORS'); } paintMode(); };
+$('btnTeam').onclick = function(){ myTeam = myTeam === 'byu' ? 'utah' : 'byu'; save('gridiron_team', myTeam); paintTeam(); send({t: 'team', team: myTeam}); toast(myTeam.toUpperCase()); };
+function paintMode(){ $('btnMode').textContent = swipe ? 'MOTION MODE' : 'SWIPE MODE'; }
+paintMode();
+var tilt = 0;
+
+/* ---------- what the TV says ---------- */
+var lastView = '';
+function onData(m){
+  if(!m) return;
+  if(m.t === 'buzz'){ vibrate(m.ms); return; }
+  if(m.t !== 'st') return;
+  var prev = st; st = m;
+  if(prev && st.banner && st.banner !== prev.banner) toast(st.banner);
+  render();
+}
+function vibrate(ms){ try { navigator.vibrate && navigator.vibrate(ms); } catch(e){} }
+var toastT = 0;
+function toast(t){ if(!t) return; $('toast').textContent = t; $('toast').classList.add('on'); clearTimeout(toastT); toastT = setTimeout(function(){ $('toast').classList.remove('on'); }, 1300); }
+
+function fmtClock(s){ s = Math.max(0, Math.ceil(s - 1e-6)); return Math.floor(s / 60) + ':' + ('0' + s % 60).slice(-2); }
+function ord(n){ return ['', '1st', '2nd', '3rd', '4th'][n] || n + 'th'; }
+var PLAYINFO = {
+  slants: ['SLANTS', 'quick, over the middle'], outs: ['OUTS', 'to the sideline: stops the clock'], curls: ['CURLS', 'short and safe'],
+  post: ['POST', 'deep shots, needs time'], screen: ['SCREEN', 'dump it to the back'], hail: ['HAIL MARY', 'everybody deep'],
+  run: ['RUN', 'hand off, tilt to steer'], spike: ['SPIKE', 'stop the clock, lose a down'], fg: ['FIELD GOAL', 'swing to kick']
+};
+var COVERINFO = {man: ['MAN', 'stick to them'], zone: ['ZONE', 'sit in the holes'], blitz: ['BLITZ', 'send the house'], prevent: ['PREVENT', 'nothing deep']};
+var myCover = null;
+
+function render(){
+  if(!st) return;
+  var v = st.v, key;
+  // the top bar
+  if(st.scr === 'game' && v){
+    $('barL').textContent = st.score ? 'BYU ' + st.score.byu + ' · UTAH ' + st.score.utah : (st.you.stats.pts || 0) + ' pts';
+    $('barC').textContent = v.untimed ? (st.score ? 'OT' : '') : fmtClock(v.clock) + (v.running ? '' : ' ■');
+    $('barR').textContent = v.over ? 'FINAL' : ord(Math.min(4, v.down)) + ' & ' + (v.goal ? 'G' : v.toGo);
+  } else { $('barL').textContent = st.you.name; $('barC').textContent = 'ROOM ' + st.code; $('barR').textContent = st.you.team.toUpperCase(); }
+
+  if(st.scr === 'lobby') key = 'lobby:' + JSON.stringify(st.cfg) + st.roster.length;
+  else if(st.scr === 'results') key = 'res:' + JSON.stringify(st.res);
+  else if(st.role === 'qb'){
+    if(v.over) key = 'qb:over';
+    else if(v.phase === 'huddle') key = 'qb:huddle:' + st.plays.join(',') + v.tos + (v.running ? 'r' : '');
+    else if(v.phase === 'presnap' || v.held || v.kicking) key = 'qb:pad';
+    else if(v.carrying) key = 'qb:run';
+    else key = 'qb:wait:' + v.text;
+  } else if(st.role === 'def') key = 'def:' + v.phase + (v.phase === 'huddle' ? myCover : '');
+  else key = 'watch:' + st.role + v.phase + st.qbName + (v.running ? 'r' : '');
+  if(key !== lastView){ lastView = key; build(key); }
+  if(key === 'qb:pad') paintPad();
+}
+
+function build(key){
+  var M = $('main'), v = st.v, h = '';
+  if(key.indexOf('lobby') === 0){
+    var c = st.cfg;
+    h = '<h2>Lobby</h2>' +
+      '<div class="stack">' +
+      [['pass', 'TOUCHDOWN PASS', 'warm-up · five throws each'], ['drill', 'TWO-MINUTE DRILL', 'beat the clock together'], ['versus', 'HOLY WAR', 'BYU phones vs Utah phones']]
+        .map(function(m){ return '<button data-cfg-mode="' + m[0] + '" class="' + (c.mode === m[0] ? 'on' : '') + '">' + m[1] + '<br><small class="dim" style="font-weight:500">' + m[2] + '</small></button>'; }).join('') +
+      '</div>' +
+      (c.mode === 'drill' ? '<div class="chips" style="margin-top:8px">' + [['saturday', 'Saturday'], ['harline', "Harline '06"], ['ferrin', "Ferrin '24"], ['george', "George '09 OT"], ['kids', 'Backyard (kids)']]
+        .map(function(s){ return '<button data-cfg-sc="' + s[0] + '" class="' + (c.sc === s[0] ? 'on' : '') + '">' + s[1] + '</button>'; }).join('') + '</div>' : '') +
+      '<div class="chips" style="margin-top:8px">' + ['rookie', 'starter', 'pro'].map(function(a){ return '<button data-cfg-as="' + a + '" class="' + (c.assist === a ? 'on' : '') + '">' + a.toUpperCase() + ' aim help</button>'; }).join('') + '</div>' +
+      '<div class="center dim">' + st.roster.length + ' on the field</div>' +
+      '<button class="big" id="btnStart">START</button>';
+    M.innerHTML = h;
+    M.querySelectorAll('[data-cfg-mode]').forEach(function(b){ b.onclick = function(){ send({t: 'cfg', mode: b.dataset.cfgMode}); }; });
+    M.querySelectorAll('[data-cfg-sc]').forEach(function(b){ b.onclick = function(){ send({t: 'cfg', sc: b.dataset.cfgSc}); }; });
+    M.querySelectorAll('[data-cfg-as]').forEach(function(b){ b.onclick = function(){ send({t: 'cfg', assist: b.dataset.cfgAs}); }; });
+    $('btnStart').onclick = function(){ send({t: 'start'}); };
+    return;
+  }
+  if(key.indexOf('res:') === 0){
+    var r = st.res, s = st.you.stats;
+    M.innerHTML = '<h1 style="font-size:36px">' + esc(r.title) + '</h1><div class="center dim">' + esc(r.sub) + '</div>' +
+      '<div class="center" style="font-size:18px;margin:10px 0">You: ' + s.comp + '/' + s.att + ', ' + s.yds + ' yds, ' + s.td + ' TD, ' + s.int + ' INT' + (s.pts ? ' · ' + s.pts + ' pts' : '') + '</div>' +
+      '<button class="big" id="btnAgain">AGAIN</button><button id="btnLobby">LOBBY</button>';
+    $('btnAgain').onclick = function(){ send({t: 'again'}); };
+    $('btnLobby').onclick = function(){ send({t: 'lobby'}); };
+    return;
+  }
+  if(key.indexOf('qb:huddle') === 0){
+    h = '<div class="center" style="font-weight:800">You\'re the QB. Call it:</div><div class="grid">' +
+      st.plays.filter(function(p){ return p !== 'spike'; }).map(function(p){
+        var hot = v.running && (p === 'outs' || p === 'hail');
+        return '<button data-play="' + p + '" class="' + (hot ? 'hot' : '') + '">' + PLAYINFO[p][0] + '<small>' + PLAYINFO[p][1] + '</small></button>';
+      }).join('') + '</div>' +
+      '<div class="row">' + (st.plays.indexOf('spike') >= 0 ? '<button id="btnSpike">SPIKE ⬇</button>' : '') +
+      (v.tos > 0 && v.running ? '<button id="btnTO">TIMEOUT (' + v.tos + ')</button>' : '') + '</div>' +
+      (v.running ? '<div class="center dim">The clock is running! Spike: flick the phone at the floor.</div>' : '');
+    M.innerHTML = h;
+    M.querySelectorAll('[data-play]').forEach(function(b){ b.onclick = function(){ send({t: 'call', play: b.dataset.play}); vibrate(20); }; });
+    if($('btnSpike')) $('btnSpike').onclick = function(){ send({t: 'spike'}); vibrate(80); };
+    if($('btnTO')) $('btnTO').onclick = function(){ send({t: 'timeout'}); };
+    return;
+  }
+  if(key === 'qb:pad'){
+    M.innerHTML = '<div id="pad"><div class="laces"></div><div id="meter"><i></i></div><div class="say" id="padSay"></div></div>';
+    bindPad($('pad'));
+    return;
+  }
+  if(key === 'qb:run'){
+    M.innerHTML = '<div class="center" style="font:900 30px Impact,sans-serif">RUN!</div><div id="steer">◀ TILT ▶<i id="steerI"></i></div><div class="center dim">Tilt the phone, or hold a side of the box. Out of bounds stops the clock.</div>';
+    var sEl = $('steer');
+    sEl.addEventListener('touchstart', steerTouch, {passive: false});
+    sEl.addEventListener('touchmove', steerTouch, {passive: false});
+    sEl.addEventListener('touchend', function(){ touchSteer = null; }, {passive: false});
+    sEl.addEventListener('mousedown', function(e){ touchSteer = e.offsetX / sEl.clientWidth * 2 - 1; });
+    sEl.addEventListener('mouseup', function(){ touchSteer = null; });
+    return;
+  }
+  if(key.indexOf('qb:') === 0){
+    M.innerHTML = '<div class="center" style="font:900 34px Impact,sans-serif">' + esc(v.over ? 'FINAL' : (v.text || '')) + '</div><div class="center dim">Back to the huddle…</div>';
+    return;
+  }
+  if(key.indexOf('def:huddle') === 0){
+    M.innerHTML = '<div class="center" style="font-weight:800">You\'re on DEFENCE. Call the coverage:</div><div class="grid">' +
+      Object.keys(COVERINFO).map(function(k){ return '<button data-cover="' + k + '" class="' + (myCover === k ? 'on' : '') + '">' + COVERINFO[k][0] + '<small>' + COVERINFO[k][1] + '</small></button>'; }).join('') +
+      '</div><div class="center dim">' + esc(st.qbName) + ' is calling a play…</div>';
+    M.querySelectorAll('[data-cover]').forEach(function(b){ b.onclick = function(){ myCover = b.dataset.cover; send({t: 'dcall', cover: myCover}); vibrate(20); lastView = ''; render(); }; });
+    return;
+  }
+  // watching
+  var who = st.role === 'off' ? 'Your team has the ball.' : st.role === 'def' ? 'Stop them!' : '';
+  M.innerHTML = '<div class="center" style="font:900 28px Impact,sans-serif">' + esc(st.qbName) + ' is the QB</div>' +
+    '<div class="center dim">' + who + ' Watch the TV.' + (st.next === st.you.name ? '<br><b style="color:var(--gold)">You\'re up next!</b>' : '') + '</div>' +
+    (st.role === 'off' && v.running && v.tos > 0 && v.phase === 'huddle' ? '<button id="btnTO2">TIMEOUT (' + v.tos + ')</button>' : '');
+  if($('btnTO2')) $('btnTO2').onclick = function(){ send({t: 'timeout'}); };
+  myCover = null;
+}
+function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]; }); }
+
+/* ---------- the football in your hand ---------- */
+var holding = false, touchStart = null;
+function bindPad(pad){
+  function down(x, y){
+    if(!st || st.role !== 'qb') return;
+    var v = st.v;
+    if(v.phase === 'presnap'){ send({t: 'snap'}); vibrate(30); }
+    holding = true; sense.down();
+    touchStart = {x: x, y: y, t: performance.now()};
+    paintPad();
+  }
+  function up(x, y){
+    if(!holding) return;
+    holding = false;
+    var now = performance.now(), r = null;
+    // a long drag up the screen is a swipe throw, whichever mode
+    if(touchStart){
+      var sw = GThrow.swipeThrow(x - touchStart.x, y - touchStart.y, now - touchStart.t, innerWidth);
+      if(sw && (swipe || Math.hypot(x - touchStart.x, y - touchStart.y) > 90)) r = sw;
+    }
+    var mo = sense.up(now);
+    if(!r && !swipe) r = mo;
+    var v = st && st.v;
+    if(r && v && (v.held || v.kicking || v.phase === 'presnap' || v.phase === 'live')){
+      send({t: 'throw', h: r.h, loft: r.loft, power: r.power, spin: r.spin});
+      vibrate(25);
+      toast(r.power > 0.75 ? 'ROCKET!' : r.power < 0.25 ? 'SOFT' : '');
+    } else if(v && (v.held || v.kicking)) toast('PUMP FAKE');
+    touchStart = null;
+    paintPad();
+  }
+  pad.addEventListener('touchstart', function(e){ e.preventDefault(); var t = e.changedTouches[0]; down(t.clientX, t.clientY); }, {passive: false});
+  pad.addEventListener('touchend', function(e){ e.preventDefault(); var t = e.changedTouches[0]; up(t.clientX, t.clientY); }, {passive: false});
+  pad.addEventListener('touchcancel', function(e){ var t = e.changedTouches[0]; up(t.clientX, t.clientY); }, {passive: false});
+  pad.addEventListener('mousedown', function(e){ down(e.clientX, e.clientY); });
+  pad.addEventListener('mouseup', function(e){ up(e.clientX, e.clientY); });
+  // swipe aim follows the finger
+  pad.addEventListener('touchmove', function(e){ if(touchStart){ var t = e.changedTouches[0]; dragAim = Math.atan2(t.clientX - touchStart.x, touchStart.y - t.clientY) * 1.1; } }, {passive: true});
+}
+var dragAim = null;
+function paintPad(){
+  var say = $('padSay');
+  if(!say || !st) return;
+  var v = st.v, pad = $('pad');
+  pad.classList.toggle('held', holding);
+  var t;
+  if(v.phase === 'presnap') t = v.call === 'fg' ? 'THUMB DOWN TO SNAP<small>then swing the phone like a kicking leg and lift your thumb</small>'
+    : 'THUMB DOWN TO HIKE<small>' + (swipe ? 'then swipe up the screen to throw' : 'keep it down: that\'s the ball in your hand') + '</small>';
+  else if(v.kicking) t = holding ? 'SWING!<small>lift your thumb as you kick</small>' : 'THUMB DOWN<small>then swing and let go</small>';
+  else if(v.held) t = holding ? (swipe ? 'SWIPE UP!' : 'THROW!') + '<small>' + (swipe ? 'flick toward your receiver' : 'lift your thumb as you let go — keep hold of the phone!') + '</small>'
+    : 'THUMB DOWN<small>you still have the ball</small>';
+  else t = '';
+  if(say.innerHTML !== t) say.innerHTML = t;
+}
+function steerTouch(e){
+  e.preventDefault();
+  var t = e.changedTouches[0], r = e.currentTarget.getBoundingClientRect();
+  touchSteer = Math.max(-1, Math.min(1, ((t.clientX - r.left) / r.width) * 2 - 1));
+}
+var touchSteer = null;
+
+/* the spike: phone flung at the floor, from the huddle with the clock running */
+function onSpikeGesture(){
+  if(!st || st.role !== 'qb' || !st.v || st.v.phase !== 'huddle' || !st.v.running || swipe) return;
+  if(st.plays.indexOf('spike') < 0) return;
+  send({t: 'spike'}); vibrate(120); toast('SPIKE!');
+}
+
+/* 20 times a second: where the phone points, the arm, the steering */
+setInterval(function(){
+  if(!st || st.role !== 'qb' || !st.v) return;
+  var v = st.v;
+  if(v.phase === 'presnap' || v.held || v.kicking){
+    var a = swipe ? (dragAim != null && holding ? {h: dragAim} : {h: 0}) : sense.aim();
+    if(a) send({t: 'aim', h: a.h, p: sense.live});
+    var mi = document.querySelector('#meter i');
+    if(mi) mi.style.height = Math.round(sense.live * 100) + '%';
+  }
+  if(v.carrying){
+    var s = touchSteer != null ? touchSteer : Math.max(-1, Math.min(1, tilt / 30));
+    if(Math.abs(s) < 0.12) s = 0;
+    send({t: 'steer', x: s});
+    var si = $('steerI'); if(si) si.style.left = (50 + s * 45) + '%';
+  }
+  sense.live *= 0.85;
+}, 50);
+
+// already have a code in the address? fill it in; joining still needs the tap (iOS motion permission)
+if($('inCode').value.length === 4 && myName) $('btnJoin').focus();
+</script>
+</body>
+</html>

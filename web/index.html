@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b1424">
+<title>Gridiron</title>
+<link rel="icon" href="icon.svg">
+<style>
+:root { --ink:#f4f7fb; --dim:#a9b6c8; --byu:#002E5D; --byu2:#0062B8; --utah:#CC0000; --gold:#ffd21f; --panel:#0b1424e6; }
+html, body { margin:0; height:100%; background:#0b1424; color:var(--ink); font:18px/1.3 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow:hidden; }
+canvas#view { position:fixed; inset:0; width:100%; height:100%; display:block; }
+.hide { display:none !important; }
+/* the scorebug */
+#bug { position:fixed; left:50%; bottom:3.2vh; transform:translateX(-50%); display:flex; align-items:stretch; font-weight:800; letter-spacing:.02em; box-shadow:0 6px 30px #0008; border-radius:10px; overflow:hidden; font-size:2.2vw; }
+#bug > div { padding:.35em .7em; display:flex; align-items:center; gap:.45em; }
+.tm { color:#fff; min-width:7.5em; justify-content:space-between; }
+.tm .sc { font-size:1.35em; font-variant-numeric:tabular-nums; }
+.tm .tos { display:flex; gap:3px; margin-top:2px; }
+.tm .tos i { width:.7em; height:.18em; background:#fff; opacity:.25; border-radius:1px; }
+.tm .tos i.on { opacity:1; background:var(--gold); }
+.tm .poss { color:var(--gold); font-size:.8em; }
+#clk { background:#111b2b; color:#fff; font-variant-numeric:tabular-nums; min-width:4.2em; justify-content:center; font-size:1.25em; }
+#clk.run { color:#fff; } #clk.stop { color:var(--gold); }
+#dd { background:#e9edf3; color:#0b1424; min-width:9em; justify-content:center; }
+#pc { background:#111b2b; color:var(--dim); font-size:.75em; }
+/* the call and what to do */
+#tip { position:fixed; left:50%; top:3vh; transform:translateX(-50%); background:var(--panel); padding:.5em 1.1em; border-radius:999px; font-size:1.6vw; font-weight:700; white-space:nowrap; box-shadow:0 4px 20px #0006; }
+#tip b { color:var(--gold); }
+#banner { position:fixed; left:0; right:0; top:34%; text-align:center; font:900 8vw/1 Impact, "Arial Black", sans-serif; letter-spacing:.03em; color:#fff; text-shadow:0 .06em 0 #000a, 0 0 .4em #0008; pointer-events:none; opacity:0; transform:scale(.8); transition:opacity .25s, transform .35s cubic-bezier(.2,1.6,.4,1); }
+#banner.on { opacity:1; transform:scale(1); }
+#banner small { display:block; font:800 2.2vw/1.2 system-ui, sans-serif; margin-top:.5em; color:var(--gold); }
+#join { position:fixed; right:1.4vw; top:1.4vw; background:var(--panel); padding:.6em; border-radius:12px; display:flex; gap:.7em; align-items:center; font-size:1.1vw; }
+#join canvas { width:7vw; height:7vw; border-radius:6px; }
+#join b { font-size:1.9vw; letter-spacing:.15em; color:var(--gold); }
+#arm { position:fixed; left:2vw; bottom:3.2vh; width:1.4vw; height:22vh; background:#0008; border-radius:999px; overflow:hidden; }
+#arm i { position:absolute; left:0; right:0; bottom:0; background:linear-gradient(0deg, #3cf, #ffd21f, #ff4b2b); height:0; }
+#pocket { position:fixed; left:50%; bottom:11.5vh; transform:translateX(-50%); width:26vw; height:.8vh; background:#0008; border-radius:999px; overflow:hidden; }
+#pocket i { display:block; height:100%; background:#fff; width:100%; }
+/* lobby and results */
+#lobby, #results { position:fixed; inset:0; background:linear-gradient(180deg, #0b1424f2 0%, #0b1424cc 60%, #0b142499 100%); display:flex; flex-direction:column; align-items:center; padding:3vh 3vw; box-sizing:border-box; overflow:auto; }
+h1 { font:900 6vw/1 Impact, "Arial Black", sans-serif; margin:0; letter-spacing:.04em; }
+h1 span.b { color:#5aa9ff; } h1 span.u { color:#ff4646; }
+.sub { color:var(--dim); font-size:1.4vw; margin:.3em 0 1.6em; }
+.row { display:flex; gap:2.4vw; align-items:flex-start; width:100%; justify-content:center; }
+.card { background:#13213a; border:2px solid #23395e; border-radius:16px; padding:1.1vw 1.4vw; }
+.qrbig { display:flex; flex-direction:column; align-items:center; gap:.5em; }
+.qrbig canvas { width:16vw; height:16vw; border-radius:10px; }
+.qrbig .code { font:900 3.2vw/1 system-ui, sans-serif; letter-spacing:.2em; color:var(--gold); }
+.qrbig .url { color:var(--dim); font-size:1vw; }
+.modes { display:flex; flex-direction:column; gap:.8vw; min-width:30vw; }
+.mode { display:flex; gap:1vw; align-items:center; cursor:pointer; }
+.mode .k { font:900 1.6vw/1 system-ui; color:#0b1424; background:var(--dim); border-radius:8px; padding:.3em .55em; }
+.mode.on { border-color:var(--gold); } .mode.on .k { background:var(--gold); }
+.mode h3 { margin:0; font-size:1.6vw; } .mode p { margin:.15em 0 0; color:var(--dim); font-size:1.05vw; }
+.opts { display:flex; gap:.5vw; flex-wrap:wrap; margin-top:.4vw; }
+.opt { font-size:1vw; padding:.35em .7em; border-radius:999px; border:1px solid #2c4470; color:var(--dim); cursor:pointer; }
+.opt.on { background:var(--gold); color:#0b1424; border-color:var(--gold); font-weight:800; }
+.roster { min-width:20vw; }
+.roster h3 { margin:0 0 .4em; font-size:1.4vw; }
+.pl { display:flex; align-items:center; gap:.5em; font-size:1.3vw; padding:.2em 0; }
+.dot { width:.9em; height:.9em; border-radius:50%; border:2px solid #fff; }
+.dot.byu { background:var(--byu2); } .dot.utah { background:var(--utah); }
+.how { color:var(--dim); font-size:1.05vw; max-width:60vw; text-align:center; margin-top:1.6vw; }
+.how b { color:var(--ink); }
+.go { margin-top:1.2vw; font-size:1.3vw; color:var(--gold); font-weight:800; }
+table.st { border-collapse:collapse; font-size:1.3vw; margin-top:1vw; }
+table.st td, table.st th { padding:.3em .9em; text-align:right; } table.st th { color:var(--dim); font-weight:600; }
+table.st td:first-child, table.st th:first-child { text-align:left; }
+#results h1 { font-size:5vw; margin-top:6vh; }
+#sound { position:fixed; left:1vw; top:1vw; font-size:1vw; color:var(--dim); background:var(--panel); padding:.3em .7em; border-radius:999px; cursor:pointer; }
+#err { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); background:#3b0d12; padding:1em 1.4em; border-radius:12px; max-width:60vw; }
+</style>
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="tip" class="hide"></div>
+<div id="banner"></div>
+<div id="arm" class="hide"><i></i></div>
+<div id="pocket" class="hide"><i></i></div>
+<div id="bug" class="hide">
+  <div class="tm" id="tmA"><span><span class="nm"></span><span class="tos"></span></span><span class="sc">0</span></div>
+  <div class="tm" id="tmB"><span><span class="nm"></span><span class="tos"></span></span><span class="sc">0</span></div>
+  <div id="clk">2:00</div>
+  <div id="dd">1ST &amp; 10</div>
+  <div id="pc">:40</div>
+</div>
+<div id="join" class="hide"><canvas id="qrSmall" width="180" height="180"></canvas><div>Join<br><b id="codeSmall"></b></div></div>
+
+<div id="lobby">
+  <h1><span class="b">GRID</span><span class="u">IRON</span></h1>
+  <div class="sub">BYU at Utah · Rice-Eccles · Saturday 10 a.m. · your phone is the football</div>
+  <div class="row">
+    <div class="card qrbig"><canvas id="qr" width="360" height="360"></canvas><div class="code" id="code">····</div><div class="url" id="url"></div></div>
+    <div class="modes" id="modes"></div>
+    <div class="card roster"><h3>On the field</h3><div id="roster"><div style="color:var(--dim)">Scan the code to join.</div></div></div>
+  </div>
+  <div class="how"><b>How to throw:</b> hold your phone like the ball, top of the phone is the nose. Point it at the TV and tap LOCK.
+    Thumb on the screen hikes it and holds the ball. Throw (keep hold of your phone!) and <b>lift your thumb</b> as you let go.
+    Let go early for a lob, late for a bullet. Tilt to run after the catch. Point the phone at the floor and flick it to spike.
+    <br>No motion sensors, or little hands? Swipe up the screen instead.</div>
+  <div class="go" id="go">Waiting for phones. A phone's START begins, or press Enter.</div>
+</div>
+
+<div id="results" class="hide"></div>
+<div id="sound">🔇 click for sound</div>
+<div id="err" class="hide"></div>
+
+<script src="sim.js"></script>
+<script src="net.js"></script>
+<script src="qr.js"></script>
+<script src="sound.js"></script>
+<script type="module">
+import {createField, TEAMS} from './field.js';
+const $ = id => document.getElementById(id);
+const S = window.GSim, SND = window.GSound;
+const isLocal = GNet.isLocal();
+const low = /(^|[?&])q=low/.test(location.search);
+const seedArg = +((location.search.match(/[?&]seed=(\d+)/) || [])[1] || 0);   // the headless check plays the same game every time
+const seed = k => seedArg ? seedArg + k : (Date.now() + k) & 0xffff;
+const field = createField($('view'), {low});
+
+/* ---------------- the room ---------------- */
+const players = new Map();   // id -> {id, name, team, conn, gone, st}
+let code = '';
+let cfg = {mode: 'drill', sc: 'saturday', assist: 'starter'};
+let screen = 'lobby';
+let G = null, sess = null, attract = null;
+let live = {aim: null, power: 0, t: 0};
+let results = null;
+
+function teamOf(t){ return t === 'utah' ? 'utah' : 'byu'; }
+function other(t){ return t === 'utah' ? 'byu' : 'utah'; }
+function active(){ return [...players.values()].filter(p => !p.gone); }
+
+GNet.host({
+  open(c){ code = c; drawJoin(); },
+  conn(conn){
+    let me = null;
+    conn.on('data', m => {
+      if(!m || typeof m !== 'object') return;
+      if(m.t === 'hello'){
+        const id = String(m.id || conn.peer).slice(0, 40);
+        me = players.get(id) || {id, stats: blankStats()};
+        me.name = String(m.name || 'Player').slice(0, 14); me.team = teamOf(m.team);
+        me.conn = conn; me.gone = false;
+        players.set(id, me);
+        roster(); push(me);
+        return;
+      }
+      if(me) onMsg(me, m);
+    });
+    conn.on('close', () => { if(me && me.conn === conn){ me.gone = true; roster(); } });
+  },
+  error(e){ $('err').textContent = 'The room could not open: ' + e; $('err').classList.remove('hide'); }
+});
+
+function blankStats(){ return {att: 0, comp: 0, yds: 0, td: 0, int: 0, sacks: 0, pts: 0, throws: 0}; }
+
+function drawJoin(){
+  const base = location.href.split('#')[0].split('?')[0].replace(/[^/]*$/, '');
+  const url = base + 'play.html' + (isLocal ? '?local=1' : '') + '#' + code;
+  drawQr($('qr'), url); drawQr($('qrSmall'), url);
+  $('code').textContent = code; $('codeSmall').textContent = code;
+  $('url').textContent = url.replace(/^https?:\/\//, '');
+}
+function drawQr(cv, text){
+  const m = qrMatrix(text, 'M'), n = m.length, g = cv.getContext('2d');
+  const s = Math.floor(cv.width / (n + 2));
+  g.fillStyle = '#fff'; g.fillRect(0, 0, cv.width, cv.height);
+  g.fillStyle = '#000';
+  const o = Math.floor((cv.width - s * n) / 2);
+  for(let y = 0; y < n; y++) for(let x = 0; x < n; x++) if(m[y][x]) g.fillRect(o + x * s, o + y * s, s, s);
+}
+
+/* ---------------- the lobby ---------------- */
+const MODES = {
+  pass:   {k: 1, name: 'TOUCHDOWN PASS', p: 'Warm-up. Everybody gets five throws, most points wins. Learn the throw here.'},
+  drill:  {k: 2, name: 'TWO-MINUTE DRILL', p: 'Your team against the clock and the defence. The QB passes round every play.'},
+  versus: {k: 3, name: 'HOLY WAR', p: 'BYU phones against Utah phones: a two-minute drive each, the defence calls coverage. Tied? Overtime from the 25.'}
+};
+function drawModes(){
+  const scs = Object.entries(S.SCENARIOS).map(([k, s]) => `<span class="opt ${cfg.sc === k ? 'on' : ''}" data-sc="${k}">${s.name}</span>`).join('');
+  const as = ['rookie', 'starter', 'pro'].map(a => `<span class="opt ${cfg.assist === a ? 'on' : ''}" data-as="${a}">${a.toUpperCase()}</span>`).join('');
+  $('modes').innerHTML = Object.entries(MODES).map(([k, m]) =>
+    `<div class="card mode ${cfg.mode === k ? 'on' : ''}" data-mode="${k}"><span class="k">${m.k}</span><div><h3>${m.name}</h3><p>${m.p}</p>
+      ${k === 'drill' && cfg.mode === 'drill' ? `<div class="opts">${scs}</div><p>${S.SCENARIOS[cfg.sc].blurb}</p>` : ''}</div></div>`).join('') +
+    `<div class="card"><div style="font-size:1.1vw;color:var(--dim)">Throwing help</div><div class="opts">${as}</div></div>`;
+}
+$('modes').addEventListener('click', e => {
+  const t = e.target.closest('[data-mode],[data-sc],[data-as]');
+  if(!t) return;
+  if(t.dataset.sc){ cfg.sc = t.dataset.sc; e.stopPropagation(); }
+  else if(t.dataset.as) cfg.assist = t.dataset.as;
+  else cfg.mode = t.dataset.mode;
+  drawModes(); pushAll();
+});
+function roster(){
+  const ps = active();
+  $('roster').innerHTML = ps.length ? ps.map(p => `<div class="pl"><span class="dot ${p.team}"></span>${esc(p.name)}</div>`).join('')
+    : '<div style="color:var(--dim)">Scan the code to join.</div>';
+  $('go').textContent = ps.length ? 'Any phone can press START, or press Enter here.' : 'Waiting for phones. A phone\'s START begins, or press Enter.';
+}
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c])); }
+drawModes();
+
+/* ---------------- starting a game ---------------- */
+function startGame(){
+  SND.start();
+  attract = null;
+  const ps = active();
+  ps.forEach(p => p.stats = blankStats());
+  results = null;
+  if(cfg.mode === 'pass'){
+    sess = {kind: 'pass', order: ps.map(p => p.id), turn: 0, left: 5, scores: {}};
+    if(!sess.order.length) sess.order = ['tv'];
+    newPassThrow();
+  } else if(cfg.mode === 'versus'){
+    sess = {kind: 'versus', order: ['byu', 'utah'], idx: 0, scores: {byu: 0, utah: 0}, ot: 0, qbi: {byu: 0, utah: 0}};
+    newVersusDrive();
+  } else {
+    const nB = ps.filter(p => p.team === 'byu').length, nU = ps.filter(p => p.team === 'utah').length;
+    const off = nU > nB ? 'utah' : 'byu';
+    sess = {kind: 'drill', offense: off, qbi: {}};
+    G = S.newDrive({seed: seed(0), scenario: cfg.sc, assist: cfg.assist, offense: off});
+    field.setTeams(off, other(off));
+  }
+  screen = 'game';
+  pickQb();
+  show();
+  const sc = sess.kind === 'drill' ? S.SCENARIOS[cfg.sc] : null;
+  bannerShow(sess.kind === 'pass' ? 'TOUCHDOWN PASS' : sess.kind === 'versus' ? 'HOLY WAR' : sc.name.toUpperCase(),
+    sess.kind === 'drill' ? sc.blurb : sess.kind === 'versus' ? 'BYU drives first' : 'Five throws each', 3.5);
+  SND.charge();
+}
+
+function newVersusDrive(){
+  const off = sess.order[sess.idx % 2];
+  const ot = sess.ot > 0;
+  G = S.newDrive({seed: seed(sess.idx), mode: 'versus', scenario: ot ? 'george' : 'saturday', assist: cfg.assist, offense: off,
+                  need: 99, clock: ot ? 0 : 120, ball: ot ? 75 : 25, tos: ot ? 1 : 2, ot});
+  field.setTeams(off, other(off));
+  pickQb(true);
+}
+
+function newPassThrow(){
+  const rnd = Math.random();
+  G = S.newDrive({seed: seed(sess.turn * 5 + sess.left), mode: 'pass', assist: cfg.assist, offense: 'byu', clock: 0, ot: true,
+                  ball: Math.round(35 + rnd * 45), tos: 0});
+  const p = players.get(sess.order[sess.turn]);
+  const t = p ? p.team : 'byu';
+  G.offense = t; G.defense = other(t);
+  field.setTeams(t, other(t));
+  sess.done = false;
+}
+
+/* Who throws this play. */
+let qbId = null;
+function pickQb(reset){
+  const ps = active();
+  if(!sess){ qbId = null; return; }
+  if(sess.kind === 'pass'){ qbId = sess.order[sess.turn]; return; }
+  const off = sess.kind === 'drill' ? sess.offense : sess.order[sess.idx % 2];
+  let pool = ps.filter(p => p.team === off);
+  if(!pool.length && sess.kind === 'drill') pool = ps;      // nobody on that side: everyone throws
+  if(!pool.length){ qbId = null; return; }
+  const key = sess.kind === 'versus' ? off : 'all';
+  const q = sess.qbi[key] || 0;
+  qbId = pool[q % pool.length].id;
+  if(!reset) sess.qbi[key] = q + 1;
+}
+function qb(){ return qbId ? players.get(qbId) : null; }
+function offenseTeam(){ return G ? G.offense : 'byu'; }
+
+/* ---------------- messages from phones ---------------- */
+function onMsg(p, m){
+  switch(m.t){
+    case 'team': p.team = teamOf(m.team); roster(); break;
+    case 'name': p.name = String(m.name || '').slice(0, 14) || p.name; roster(); break;
+    case 'cfg':
+      if(screen !== 'lobby') break;
+      if(MODES[m.mode]) cfg.mode = m.mode;
+      if(S.SCENARIOS[m.sc]) cfg.sc = m.sc;
+      if(S.ASSIST[m.assist]) cfg.assist = m.assist;
+      drawModes(); break;
+    case 'start': if(screen === 'lobby') startGame(); break;
+    case 'again': if(screen === 'results') startGame(); break;
+    case 'lobby': if(screen === 'results' || screen === 'game') toLobby(); break;
+    case 'dcall':
+      if(G && G.phase === 'huddle' && S.COVERS[m.cover] && p.team === G.defense){ G.dcall = m.cover; }
+      break;
+    case 'timeout':
+      if(G && p.team === G.offense && S.timeout(G)) {}
+      break;
+  }
+  if(!G || screen !== 'game' || p.id !== qbId) { pushSoon(p); return; }
+  switch(m.t){
+    case 'call': if(sess.kind === 'pass' && !/^(slants|outs|curls|post|screen|hail)$/.test(m.play)) break; S.callPlay(G, m.play); break;
+    case 'snap': S.snap(G); break;
+    case 'throw':
+      lastThrow = m;
+      if(G.call === 'fg') S.kick(G, {h: +m.h || 0, power: +m.power || 0});
+      else if(S.throwBall(G, {h: +m.h || 0, loft: +m.loft, power: +m.power || 0, spin: +m.spin || 0})) p.stats.throws++;
+      break;
+    case 'steer': S.steer(G, +m.x || 0); break;
+    case 'spike': if(G.phase === 'huddle') S.callPlay(G, 'spike'); break;
+    case 'aim': live.aim = +m.h; live.power = +m.p || 0; live.t = performance.now(); break;
+  }
+  pushSoon(p);
+}
+
+function toLobby(){
+  screen = 'lobby'; G = null; sess = null; results = null; qbId = null;
+  show(); drawModes(); roster(); pushAll();
+}
+
+/* ---------------- what each phone sees ---------------- */
+function stateFor(p){
+  const v = G ? S.view(G) : null;
+  let role = 'watch';
+  if(screen === 'game' && G){
+    if(p.id === qbId) role = 'qb';
+    else if(sess.kind !== 'pass' && p.team === G.defense) role = 'def';
+    else if(sess.kind !== 'pass' && p.team === G.offense) role = 'off';
+  }
+  const q = qb();
+  return {t: 'st', scr: screen, cfg, role, code,
+    qbName: q ? q.name : 'the TV', off: G && G.offense, def: G && G.defense, v,
+    plays: G ? S.PLAY_ORDER.filter(k => (sess.kind !== 'pass' || /^(slants|outs|curls|post|screen|hail)$/.test(k)) && S.canCall(G, k) && (k !== 'spike' || G.clockRunning)) : [],
+    score: scoreLine(), banner: bannerNow && performance.now() < bannerNow.until ? bannerNow.text : '',
+    you: {name: p.name, team: p.team, stats: p.stats},
+    roster: active().map(x => ({name: x.name, team: x.team})),
+    next: sess && sess.kind === 'pass' ? (players.get(sess.order[(sess.turn + 1) % sess.order.length]) || {}).name : null,
+    res: results};
+}
+function push(p){ if(p.conn && !p.gone) try { p.conn.send(stateFor(p)); } catch(e){} }
+function pushAll(){ active().forEach(push); }
+const soon = new Set();
+function pushSoon(p){ soon.add(p); }
+setInterval(() => { pushAll(); soon.clear(); }, 120);
+setInterval(() => { soon.forEach(push); soon.clear(); }, 30);
+function buzz(p, ms){ if(p && p.conn && !p.gone) try { p.conn.send({t: 'buzz', ms}); } catch(e){} }
+
+/* ---------------- the score ---------------- */
+function scoreLine(){
+  if(!G) return null;
+  if(sess && sess.kind === 'versus') return {byu: sess.scores.byu + (G.offense === 'byu' ? G.points : 0), utah: sess.scores.utah + (G.offense === 'utah' ? G.points : 0)};
+  if(sess && sess.kind === 'pass') return null;
+  const base = G.need === 2 ? 19 : 20;
+  const s = {}; s[G.offense] = base + G.points; s[G.defense] = base + G.need;
+  return s;
+}
+
+/* ---------------- the game loop ---------------- */
+/* Fixed 60 Hz steps, catching up with real time: a slow TV (a Fire Stick
+   drawing a big frame) must not slow the game clock down. */
+let tLast = performance.now(), prevPhase = null, acc = 0;
+setInterval(() => {
+  const now = performance.now();
+  acc = Math.min(0.5, acc + (now - tLast) / 1000); tLast = now;
+  while(acc >= 1 / 60){ acc -= 1 / 60; tick(1 / 60); }
+}, 1000 / 60);
+function tick(dt){
+  if(screen === 'lobby'){
+    // attract: the computer quarterback runs drives behind the lobby
+    if(!attract || attract.over && attract.t - attract.endT > 4){
+      attract = S.newDrive({seed: (Math.random() * 1e6) | 0, scenario: 'saturday', assist: 'starter', offense: Math.random() < 0.5 ? 'byu' : 'utah'});
+      attract.endT = 1e9;
+      field.setTeams(attract.offense, attract.defense);
+    }
+    S.bot(attract, dt, {aim: 6, dist: 0.12, patience: 1});
+    S.step(attract, dt);
+    if(attract.over && attract.endT === 1e9) attract.endT = attract.t;
+    return;
+  }
+  if(!G || screen !== 'game') return;
+  // a TV with nobody on it (keyboard play): nothing to do but wait
+  if(!qbId && !keyboardMode && sess.kind !== 'pass') S.bot(G, dt, {aim: 6, dist: 0.12});
+  S.step(G, dt);
+  if(G.phase === 'huddle' && prevPhase === 'dead'){ pickQb(); pushAll(); const q = qb(); if(q) buzz(q, 120); }
+  prevPhase = G.phase;
+  G.ev.forEach(onEvent);
+  if(sess.kind === 'pass' && !sess.done && (G.phase === 'dead' || G.over)){
+    sess.done = true;
+    const pts = S.passScore(G), p = players.get(qbId);
+    if(p){ p.stats.pts += pts; }
+    sess.scores[qbId] = (sess.scores[qbId] || 0) + pts;
+    bannerShow(pts ? '+' + pts : 'NO SCORE', p ? p.name + ': ' + sess.scores[qbId] + ' points' : '', 2.2);
+    setTimeout(() => {
+      if(!sess || sess.kind !== 'pass') return;
+      sess.left--;
+      if(sess.left <= 0){ sess.left = 5; sess.turn++; }
+      if(sess.turn >= sess.order.length) return finish();
+      newPassThrow(); pickQb(); pushAll();
+      const q = qb(); if(q) buzz(q, 200);
+    }, 2400);
+  }
+}
+
+function onEvent(e){
+  const q = qb();
+  const qs = q ? q.stats : {};
+  switch(e.type){
+    case 'snap': SND.roar(0.15, 1.5); break;
+    case 'throw': SND.thud(false); if(q){ qs.att++; } SND.roar(0.3, 2.5); break;
+    case 'catch': SND.thud(true); SND.roar(0.55, 2.5); if(q){ qs.comp++; buzz(q, 60); } bannerShow('CAUGHT!', '', 1.0); break;
+    case 'td': SND.horn(); SND.roar(1, 5); if(q){ qs.td++; buzz(q, 600); }
+      bannerShow('TOUCHDOWN!', TEAMS[G.offense].nick, 3.5); break;
+    case 'int': SND.groan(); if(q){ qs.int++; buzz(q, 400); } bannerShow('INTERCEPTED!', TEAMS[G.defense].nick + ' ball', 3); break;
+    case 'sack': SND.thud(true); SND.groan(); if(q){ qs.sacks++; buzz(q, 300); } bannerShow('SACKED!', '', 1.8); break;
+    case 'incomplete': case 'drop': case 'breakup': SND.whistle(); SND.groan(); bannerShow(e.text, '', 1.4); break;
+    case 'tackle': SND.thud(true); SND.whistle(); break;
+    case 'dead': if(e.why === 'oob'){ SND.whistle(); } if(q && e.gain > 0 && G.thrown) qs.yds += e.gain; break;
+    case 'first': SND.charge(); bannerShow('FIRST DOWN!', '', 1.6); break;
+    case 'spike': SND.whistle(); bannerShow('SPIKE', 'clock stopped', 1.4); break;
+    case 'timeout': SND.whistle(); bannerShow('TIMEOUT', TEAMS[G.offense].name + ' · ' + G.tos + ' left', 1.8); break;
+    case 'flag': SND.whistle(); bannerShow('FLAG', e.text, 2); break;
+    case 'broken': SND.roar(0.6, 1.5); break;
+    case 'fg': SND.horn(); SND.roar(1, 4); bannerShow("IT'S GOOD!", e.text.replace("IT'S GOOD! ", ''), 3.5); break;
+    case 'fgmiss': SND.groan(); bannerShow(e.text, '', 3); break;
+    case 'downs': SND.groan(); bannerShow('TURNOVER ON DOWNS', '', 3); break;
+    case 'over': driveOver(e); break;
+  }
+  if(e.type === 'td' && q && G.thrown) qs.yds += Math.round(100 - G.startBall);
+}
+
+function driveOver(e){
+  if(sess.kind === 'pass') return;
+  if(e.why === 'clock'){ SND.horn(); bannerShow('TIME!', '', 2.5); }
+  setTimeout(() => {
+    if(!sess || screen !== 'game') return;
+    if(sess.kind === 'drill') return finish();
+    // versus: bank the points, next drive
+    sess.scores[G.offense] += G.points;
+    sess.idx++;
+    if(sess.idx % 2 === 0){
+      if(sess.scores.byu !== sess.scores.utah || sess.ot >= 3) return finish();
+      sess.ot++;
+      bannerShow('OVERTIME', 'ball on the 25, no clock', 3);
+    } else bannerShow(TEAMS[sess.order[sess.idx % 2]].name + ' BALL', 'two minutes, from the 25', 3);
+    newVersusDrive(); pushAll();
+  }, 3600);
+}
+
+function finish(){
+  const ps = active();
+  if(sess.kind === 'pass'){
+    const rows = ps.map(p => ({name: p.name, team: p.team, pts: sess.scores[p.id] || 0, s: p.stats})).sort((a, b) => b.pts - a.pts);
+    results = {kind: 'pass', title: rows.length ? rows[0].name.toUpperCase() + ' WINS' : 'DONE', sub: rows.length ? rows[0].pts + ' points' : '', rows};
+  } else if(sess.kind === 'versus'){
+    const b = sess.scores.byu, u = sess.scores.utah;
+    results = {kind: 'versus', title: b === u ? 'TIED' : (b > u ? 'BYU' : 'UTAH') + ' WINS', sub: 'BYU ' + b + ' · UTAH ' + u + (b === u ? ' · share the Beehive Boot' : ''),
+      rows: ps.map(p => ({name: p.name, team: p.team, s: p.stats}))};
+  } else {
+    const sc = scoreLine(), off = G.offense, def = G.defense, win = G.result && G.result.win;
+    const why = {td: 'Touchdown!', fg: 'Field goal!', int: 'Intercepted.', downs: 'Turned over on downs.', clock: 'Time ran out.', fgmiss: 'The kick missed.'}[G.result.why] || '';
+    results = {kind: 'drill', title: win ? TEAMS[off].name + ' WINS!' : TEAMS[def].name + ' HOLDS ON', sub: why + '  ' + TEAMS[off].name + ' ' + sc[off] + ' · ' + TEAMS[def].name + ' ' + sc[def] + '  ·  ' + fmtClock(G.clock) + ' left',
+      win, rows: ps.filter(p => p.stats.att || p.stats.throws || p.team === off).map(p => ({name: p.name, team: p.team, s: p.stats}))};
+  }
+  screen = 'results';
+  show(); pushAll();
+  SND.roar(0.8, 4);
+}
+
+/* ---------------- drawing ---------------- */
+let bannerNow = null, bannerTimer = 0;
+function bannerShow(text, small, secs){
+  bannerNow = {text, until: performance.now() + secs * 1000};
+  $('banner').innerHTML = esc(text) + (small ? '<small>' + esc(small) + '</small>' : '');
+  $('banner').style.fontSize = text.length > 12 ? Math.max(4, 100 / text.length) + 'vw' : '';
+  $('banner').classList.add('on');
+  clearTimeout(bannerTimer);
+  bannerTimer = setTimeout(() => $('banner').classList.remove('on'), secs * 1000);
+}
+function fmtClock(s){ s = Math.max(0, Math.ceil(s - 1e-6)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); }
+function ord(n){ return ['', '1ST', '2ND', '3RD', '4TH'][n] || n + 'TH'; }
+
+function show(){
+  $('lobby').classList.toggle('hide', screen !== 'lobby');
+  $('results').classList.toggle('hide', screen !== 'results');
+  const game = screen === 'game';
+  $('bug').classList.toggle('hide', !game || (sess && sess.kind === 'pass'));
+  $('join').classList.toggle('hide', screen === 'lobby');
+  $('tip').classList.toggle('hide', !game);
+  if(screen === 'results' && results){
+    const r = results;
+    const rows = r.rows.map(x => `<tr><td><span class="dot ${x.team}" style="display:inline-block;vertical-align:-2px"></span> ${esc(x.name)}</td>` +
+      (r.kind === 'pass' ? `<td>${x.pts}</td>` : '') + `<td>${x.s.comp}/${x.s.att}</td><td>${x.s.yds}</td><td>${x.s.td}</td><td>${x.s.int}</td><td>${x.s.sacks}</td></tr>`).join('');
+    $('results').innerHTML = `<h1>${esc(r.title)}</h1><div class="sub" style="font-size:2vw">${esc(r.sub)}</div>
+      <table class="st"><tr><th>Passer</th>${r.kind === 'pass' ? '<th>Points</th>' : ''}<th>Comp/Att</th><th>Yards</th><th>TD</th><th>INT</th><th>Sacked</th></tr>${rows}</table>
+      <div class="go">AGAIN or LOBBY on any phone · Enter = again · Esc = lobby</div>`;
+  }
+}
+
+function drawHud(){
+  if(screen !== 'game' || !G) return;
+  const v = S.view(G), sc = scoreLine();
+  const q = qb(), qn = q ? esc(q.name) : 'TV';
+  if(sess.kind !== 'pass'){
+    const home = 'utah', away = 'byu';           // Rice-Eccles: Utah at home
+    [[$('tmA'), away], [$('tmB'), home]].forEach(([el, t]) => {
+      el.style.background = TEAMS[t].col;
+      el.querySelector('.nm').innerHTML = TEAMS[t].name + (G.offense === t ? ' <span class="poss">●</span>' : '');
+      el.querySelector('.sc').textContent = sc ? sc[t] : 0;
+      const tos = G.offense === t ? G.tos : 3;
+      el.querySelector('.tos').innerHTML = [0, 1, 2].map(i => `<i class="${i < tos ? 'on' : ''}"></i>`).join('');
+    });
+    $('clk').textContent = G.untimed ? 'OT' : fmtClock(v.clock);
+    $('clk').className = v.running ? 'run' : 'stop';
+    const spot = v.ball === 50 ? '50' : v.ball < 50 ? TEAMS[G.offense].name + ' ' + v.ball : TEAMS[G.defense].name + ' ' + (100 - v.ball);
+    $('dd').textContent = v.over ? 'FINAL' : ord(Math.min(4, v.down)) + ' & ' + (v.goal ? 'GOAL' : v.toGo) + ' · ' + spot;
+    $('pc').textContent = v.running && (v.phase === 'huddle' || v.phase === 'presnap') ? ':' + String(Math.max(0, v.pc)).padStart(2, '0') : '';
+  }
+  let tip = '';
+  const P = S.PLAYS[G.call];
+  if(v.phase === 'huddle') tip = `<b>${qn}</b> is the quarterback: pick a play on your phone`;
+  else if(v.phase === 'presnap') tip = G.call === 'fg' ? `<b>${qn}</b>: thumb down to snap, then swing and let go to kick` : `<b>${P.name}</b> vs ${S.COVERS[G.cover] ? S.COVERS[G.cover].name : ''} · <b>${qn}</b>: thumb on the screen to hike`;
+  else if(v.held) tip = `<b>THROW!</b> lift your thumb as you let go`;
+  else if(v.kicking) tip = `<b>KICK!</b> swing and let go`;
+  else if(v.carrying) tip = `<b>Tilt your phone</b> to run`;
+  else if(sess.kind === 'pass') tip = `<b>${qn}</b> · throw ${6 - sess.left} of 5 · ${sess.scores[qbId] || 0} points`;
+  else tip = esc(v.text || '');
+  if(sess.kind === 'pass' && (v.phase === 'huddle' || v.phase === 'presnap')) tip = `<b>${qn}</b> · throw ${6 - sess.left} of 5 · ${sess.scores[qbId] || 0} points · ` + (v.phase === 'huddle' ? 'pick a play' : 'thumb down to hike');
+  if($('tip').innerHTML !== tip) $('tip').innerHTML = tip;
+  const aimFresh = performance.now() - live.t < 500;
+  $('arm').classList.toggle('hide', !(aimFresh && (v.held || v.kicking || v.phase === 'presnap')));
+  $('arm').firstElementChild.style.height = Math.round((live.power || 0) * 100) + '%';
+  $('pocket').classList.toggle('hide', !v.held);
+  $('pocket').firstElementChild.style.width = Math.round(v.pocket * 100) + '%';
+  $('pocket').firstElementChild.style.background = v.pocket < 0.3 ? '#ff4b2b' : '#fff';
+}
+
+function frame(){
+  requestAnimationFrame(frame);
+  const g = screen === 'lobby' ? attract : G;
+  const aimFresh = performance.now() - live.t < 500;
+  field.draw(g, screen === 'game' && aimFresh ? live : (keyboardMode && screen === 'game' ? {aim: mouseAim(), power: 0.5} : {}));
+  drawHud();
+}
+requestAnimationFrame(frame);
+
+/* ---------------- playing on the TV itself (keyboard and mouse) ---------------- */
+let keyboardMode = false, mouse = [0, 0], lastThrow = null;
+function mouseAim(){
+  if(!G || !G.o) return null;
+  const p = field.pick(mouse[0], mouse[1]);
+  if(!p) return null;
+  return Math.atan2(p[0] - G.o.QB.x, p[1] - G.o.QB.y);
+}
+addEventListener('mousemove', e => { mouse = [e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1]; });
+addEventListener('mousedown', e => {
+  SND.start(); $('sound').classList.add('hide');
+  if(!G || screen !== 'game') return;
+  if(e.target.closest('#modes,#sound')) return;
+  const p = field.pick(e.clientX / innerWidth * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  if(!p) return;
+  keyboardMode = true;
+  if(G.phase === 'presnap') S.snap(G);
+  else if(G.phase === 'live' && G.call === 'fg') S.kick(G, {power: 0.85, h: Math.atan2(p[0], 110 - G.ball) * 0.6});
+  else if(G.phase === 'live') S.throwBall(G, {at: p});
+});
+const keySteer = {ArrowLeft: -1, ArrowRight: 1};
+addEventListener('keydown', e => {
+  SND.start(); $('sound').classList.add('hide');
+  if(screen === 'lobby'){
+    if(e.key === '1') cfg.mode = 'pass'; else if(e.key === '2') cfg.mode = 'drill'; else if(e.key === '3') cfg.mode = 'versus';
+    else if(e.key === 'Enter') { startGame(); return; }
+    drawModes(); pushAll(); return;
+  }
+  if(screen === 'results'){ if(e.key === 'Enter') startGame(); else if(e.key === 'Escape') toLobby(); return; }
+  if(e.key === 'Escape'){ toLobby(); return; }
+  if(!G) return;
+  keyboardMode = true;
+  const n = parseInt(e.key, 10);
+  if(n >= 1 && n <= 9 && G.phase === 'huddle') S.callPlay(G, S.PLAY_ORDER[n - 1]);
+  if(e.key === ' ' && G.phase === 'presnap') S.snap(G);
+  if(e.key === 't' || e.key === 'T') S.timeout(G);
+  if(e.key === 's' || e.key === 'S'){ if(G.phase === 'huddle') S.callPlay(G, 'spike'); }
+  if(keySteer[e.key]) S.steer(G, keySteer[e.key]);
+  if(e.key === 'f' || e.key === 'F'){ if(document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); }
+});
+addEventListener('keyup', e => { if(keySteer[e.key] && G) S.steer(G, 0); });
+$('sound').addEventListener('click', () => { SND.start(); $('sound').classList.add('hide'); });
+
+// for the headless check
+window.GRID = {get G(){ return G; }, get screen(){ return screen; }, get players(){ return players; }, get qbId(){ return qbId; }, get code(){ return code; }, get results(){ return results; }, get lastThrow(){ return lastThrow; }, startGame, cfg};
+</script>
+</body>
+</html>
