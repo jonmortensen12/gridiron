@@ -1,12 +1,14 @@
 /* throwcheck - the throw reader against throws whose answer is known.
 
    Builds a phone's true pose through a throw (held like a ball, the nose
-   pointing where it goes, an overhand arc, a spiral), turns it into the
-   events a phone would fire (gyro rates in the phone's own frame, the
-   browser's orientation lagging behind), and checks what throw.js reads
-   back: heading, loft, power, spin. Also: a pump fake is not a throw, the
-   spike is seen, a soft lob is soft, and the TV can be anywhere on the
-   compass (including across the +-180 seam).
+   pointing where it goes, a wind-up, an overhand arc, a spiral), turns it
+   into the events a phone would fire (gyro rates in the phone's own
+   frame, the browser's orientation lagging behind), and checks what
+   throw.js sees with no button at all: that there was exactly one throw,
+   its heading, lob or bullet, power, spin. And what must NOT be a throw:
+   the wind-up, waving the phone about, lowering it, anything while the
+   reader is not armed. The spike, and the TV anywhere on the compass
+   (including across the +-180 seam).
 
    node throwcheck.mjs */
 import fs from 'fs';
@@ -44,10 +46,10 @@ function pose(H, e, r){
   return T.qmul(T.qmul(T.qaxis(a[0], a[1], a[2], -e), base), T.qaxis(0, 1, 0, r));
 }
 
-/* Feed a pose trajectory to a ThrowSense. path(t) -> {q, acc}. Returns at release. */
-function run(s, path, t0, t1, releaseAt, opts = {}){
+/* Feed a pose trajectory to a ThrowSense. path(t) -> {q, acc}. */
+function run(s, path, t0, t1, opts = {}){
   const dt = 1 / 60;
-  let prev = path(t0).q, result, lagQ = prev;
+  let prev = path(t0).q, lagQ = prev;
   for(let t = t0; t <= t1 + 1e-9; t += dt){
     const {q, acc} = path(t);
     // body rates: 2 * conj(prev) * q / dt
@@ -63,10 +65,8 @@ function run(s, path, t0, t1, releaseAt, opts = {}){
     const eu = toEuler(lagQ);
     s.orientation(eu.alpha, eu.beta, eu.gamma);
     s.motion(rate, {x: acc * 0.6, y: acc * 0.8, z: 0}, null, dt, t * 1000);
-    if(releaseAt != null && result === undefined && t >= releaseAt) result = s.up(t * 1000);
     prev = q;
   }
-  return result;
 }
 function slerp(a, b, t){
   let d = a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3];
@@ -75,70 +75,86 @@ function slerp(a, b, t){
   return q.map(v => v / n);
 }
 
+/* A whole throw: aim at the TV and LOCK, arm, wind up (nose up and back
+   over the shoulder), come over the top (nose sweeps forward and down
+   through `cock` -> `through` in `dur` s), follow through, settle.
+   Returns every throw the reader reported. */
 function throwAt(tvH, offsetDeg, opts = {}){
-  const s = new T.ThrowSense();
+  const seen = [];
+  const s = new T.ThrowSense({onThrow: r => seen.push(r)});
   const H = tvH + offsetDeg * D;
-  // aim at the TV, lock
   run(s, () => ({q: pose(tvH, 0.1, 0), acc: 0}), 0, 0.8);
   s.lock();
-  // cock the arm: nose up and back over the shoulder
-  const cock = opts.cock || 75 * D, through = opts.through || -30 * D, dur = opts.dur || 0.18;
-  const spin = opts.spin || 0;
+  if(!opts.unarmed) s.arm(true);
+  const cock = opts.cock != null ? opts.cock : 75 * D, through = opts.through != null ? opts.through : -30 * D, dur = opts.dur || 0.18;
+  const spin = opts.spin || 0, wind = opts.wind || 0.25;
   const path = t => {
-    if(t < 1.0){ const k = Math.min(1, (t - 0.8) / 0.2); return {q: pose(tvH + (H - tvH) * k, 0.1 + (cock - 0.1) * k, 0), acc: 2}; }
+    // the wind-up: turn to the target and lift the nose up and back (fast, like a real one)
+    if(t < 0.8 + wind){ const k = Math.min(1, (t - 0.8) / wind), sm = k * k * (3 - 2 * k); return {q: pose(tvH + (H - tvH) * sm, 0.1 + (cock - 0.1) * sm, 0), acc: 6 * Math.sin(Math.PI * k)}; }
     if(t < 1.3) return {q: pose(H, cock, 0), acc: 0.2};
     const u = Math.min(1, (t - 1.3) / dur), sm = u * u * (3 - 2 * u);
-    return {q: pose(H, cock + (through - cock) * sm, spin * sm), acc: (opts.acc || 24) * Math.sin(Math.PI * Math.min(1, u))};
+    return {q: pose(H, cock + (through - cock) * sm, spin * sm), acc: (opts.acc != null ? opts.acc : 24) * Math.sin(Math.PI * Math.min(1, u))};
   };
-  s.down();
-  // release when the nose passes the release elevation
-  const relE = opts.release != null ? opts.release : 15 * D;
-  const uRel = (cock - relE) / (cock - through);
-  // invert smoothstep
-  let lo = 0, hi = 1;
-  for(let i = 0; i < 40; i++){ const m = (lo + hi) / 2, sm = m * m * (3 - 2 * m); if(sm < uRel) lo = m; else hi = m; }
-  const tRel = 1.3 + lo * dur;
-  run(s, path, 0.8, 1.3, null, opts);
-  return run(s, path, 1.3, 1.3 + dur + 0.1, tRel, opts);
+  run(s, path, 0.8, 1.3 + dur + 0.6, opts);
+  return opts.all ? seen : (seen.length === 1 ? seen[0] : null);
 }
 
-console.log('throw reader');
+console.log('throw reader: no button, the motion is the throw');
 for(const [tv, off] of [[0, 20], [70, -15], [175, 12], [-100, 0], [200, -30]]){
   const r = throwAt(tv * D, off);
-  ok(r && Math.abs(r.h / D - off) < 4, `TV at ${tv} deg, thrown ${off} deg: read ${r ? (r.h / D).toFixed(1) : 'nothing'} deg`);
+  ok(r && Math.abs(r.h / D - off) < 4, `TV at ${tv} deg, thrown ${off} deg: one throw, read ${r ? (r.h / D).toFixed(1) : 'nothing'} deg`);
 }
 {
   const r = throwAt(30 * D, 0);
   ok(r && r.power > 0.6, `a hard throw is hard: power ${r && r.power.toFixed(2)} (arc ${r && r.arc} deg/s)`);
-  ok(r && r.loft / D > 18 && r.loft / D < 30, `released with the nose at 15 deg: loft ${r && (r.loft / D).toFixed(1)} deg`);
 }
 {
-  const early = throwAt(0, 0, {release: 50 * D}), late = throwAt(0, 0, {release: -5 * D});
-  ok(early && late && early.loft > late.loft + 15 * D, `early release lobs, late release is flat: ${early && (early.loft / D).toFixed(0)} vs ${late && (late.loft / D).toFixed(0)} deg`);
+  // a lob: released high (nose up), an easy arm. A bullet: released level, a fast arm.
+  const lob = throwAt(0, 0, {cock: 100 * D, through: 5 * D, dur: 0.32, acc: 9});
+  const bullet = throwAt(0, 0, {cock: 55 * D, through: -55 * D, dur: 0.13, acc: 30});
+  const touch = throwAt(0, 0, {cock: 80 * D, through: -20 * D, dur: 0.2, acc: 16});
+  ok(lob && lob.kind === 'LOB', `a high, easy release is a LOB: ${lob && lob.kind} (loft ${lob && (lob.loft / D).toFixed(0)} deg, power ${lob && lob.power.toFixed(2)}, nose ${lob && lob.el} deg)`);
+  ok(bullet && bullet.kind === 'BULLET', `a level, fast release is a BULLET: ${bullet && bullet.kind} (loft ${bullet && (bullet.loft / D).toFixed(0)} deg, power ${bullet && bullet.power.toFixed(2)}, nose ${bullet && bullet.el} deg)`);
+  ok(touch && touch.kind === 'TOUCH', `in between is TOUCH: ${touch && touch.kind} (loft ${touch && (touch.loft / D).toFixed(0)} deg)`);
 }
 {
-  const soft = throwAt(0, 0, {dur: 0.5, acc: 6});
-  ok(soft && soft.power < 0.35, `a soft toss is soft: power ${soft && soft.power.toFixed(2)}`);
+  const soft = throwAt(0, 0, {dur: 0.4, acc: 6});
+  ok(soft && soft.power < 0.4, `a soft toss is soft: power ${soft && soft.power.toFixed(2)}`);
 }
 {
   const sp = throwAt(0, 10, {spin: 4 * Math.PI}), none = throwAt(0, 10, {spin: 0});
-  ok(sp && sp.spin > 0.5 && none.spin < 0.05, `a spiral reads as spin: ${sp && sp.spin.toFixed(2)} vs ${none && none.spin.toFixed(2)}`);
+  ok(sp && sp.spin > 0.5 && none && none.spin < 0.05, `a spiral reads as spin: ${sp && sp.spin.toFixed(2)} vs ${none && none.spin.toFixed(2)}`);
   ok(sp && Math.abs(sp.h / D - 10) < 5, `the spiral does not move the aim: ${sp && (sp.h / D).toFixed(1)} deg`);
 }
 {
   const b = throwAt(0, 10, {bias: 3});
   ok(b && Math.abs(b.h / D - 10) < 5, `a gyro with a 3 deg/s bias still aims: ${b && (b.h / D).toFixed(1)} deg`);
 }
+
+console.log('not throws');
 {
-  // pump fake: thumb comes up with the phone barely moving
-  const s = new T.ThrowSense();
-  run(s, t => ({q: pose(0, 0.3 + 0.05 * Math.sin(t * 3), 0), acc: 0.5}), 0, 1);
-  s.lock(); s.down();
-  const r = run(s, t => ({q: pose(0, 0.3 + 0.05 * Math.sin(t * 3), 0), acc: 0.5}), 1, 1.5, 1.4);
-  ok(r === null, 'a pump fake (thumb up, no throw) is not a throw');
+  ok(throwAt(0, 0, {unarmed: true, all: true}).length === 0, 'a throw while the game is not asking for one (between plays) is ignored');
+  ok(throwAt(0, 0, {dur: 1.2, acc: 1, all: true}).length === 0, 'lowering the phone slowly is not a throw');
+  // the wind-up alone: nose up and back, fast, past straight up
+  const seen = [], s = new T.ThrowSense({onThrow: r => seen.push(r)});
+  run(s, () => ({q: pose(0, 0.1, 0), acc: 0}), 0, 0.5); s.lock(); s.arm(true);
+  run(s, t => { const k = Math.min(1, (t - 0.5) / 0.15); return {q: pose(0, 0.1 + 1.9 * k, 0), acc: 12}; }, 0.5, 1.2);
+  ok(seen.length === 0, 'a fast wind-up (nose swinging up and back) is not a throw');
+  // waving the phone flat, side to side
+  const w = new T.ThrowSense({onThrow: r => seen.push(r)});
+  run(w, () => ({q: pose(0, 0.1, 0), acc: 0}), 0, 0.5); w.lock(); w.arm(true);
+  run(w, t => ({q: pose(Math.sin((t - 0.5) * 14) * 0.9, 0.1, 0), acc: 8}), 0.5, 1.7);
+  ok(seen.length === 0, 'waving the phone side to side is not a throw');
+  // two throws in a row both count
+  const two = new T.ThrowSense({onThrow: r => seen.push(r)});
+  seen.length = 0;
+  run(two, () => ({q: pose(0, 0.1, 0), acc: 0}), 0, 0.5); two.lock(); two.arm(true);
+  const arm = (t0) => t => { const u = Math.min(1, Math.max(0, (t - t0) / 0.18)), sm = u * u * (3 - 2 * u); return {q: pose(0, (t < t0 ? 1.3 * Math.min(1, (t - t0 + 0.5) / 0.3) : 1.3 - 1.8 * sm), 0), acc: 20 * Math.sin(Math.PI * u)}; };
+  run(two, arm(1.0), 0.5, 1.6); run(two, arm(2.4), 1.6, 3.0);
+  ok(seen.length === 2, `two throws, a second apart, are two throws (${seen.length})`);
 }
 {
-  // the spike: not holding, nose flung at the floor
+  // the spike: not armed, nose flung at the floor
   let spiked = 0;
   const s = new T.ThrowSense({onSpike: () => spiked++});
   run(s, () => ({q: pose(0, 0.2, 0), acc: 0}), 0, 0.5);
@@ -153,7 +169,7 @@ for(const [tv, off] of [[0, 20], [70, -15], [175, 12], [-100, 0], [200, -30]]){
   // locking with the phone held up like a remote (nose to the ceiling, back toward the TV)
   const s = new T.ThrowSense();
   const tv = 40 * D;
-  const f = [Math.sin(tv), Math.cos(tv), 0], u = [0, 0, 1];
+  const f = [Math.sin(tv), Math.cos(tv), 0];
   // tipped back 10 degrees: exactly upright is the gimbal point of the browser's angles
   const c = Math.cos(10 * D), sn = Math.sin(10 * D);
   const y = [-f[0] * sn, -f[1] * sn, c], z = [-f[0] * c, -f[1] * c, -sn];

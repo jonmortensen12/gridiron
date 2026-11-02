@@ -22,9 +22,9 @@ the repo root.
 ## Before shipping
 
 ```
-node throwcheck.mjs   # the throw reader against synthetic throws: aim, loft, power, spin, pump fake, spike
+node throwcheck.mjs   # the throw reader against synthetic throws, no button: aim, lob/bullet, power, spin, not-throws, spike
 node simcheck.mjs     # the football rules, then Two-Minute Drills by a computer QB at three skill levels
-node netcheck.mjs     # the TV and two phones in Chromium over ?local=1: every mode, a swipe throw, a motion throw
+node netcheck.mjs     # the TV and two phones in Chromium over ?local=1: join + reload, every mode, a swipe throw, a motion throw, practice
 ```
 
 `web/sim.js` decides everything that happens and draws nothing. Change the

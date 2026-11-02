@@ -34,7 +34,8 @@
 :root { --bg:#0b1424; --ink:#f4f7fb; --dim:#9fb0c6; --gold:#ffd21f; --byu:#0062B8; --byud:#002E5D; --utah:#CC0000; --team:#0062B8; }
 * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:16px/1.3 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow:hidden; overscroll-behavior:none; touch-action:none; -webkit-user-select:none; user-select:none; }
-.scr { position:fixed; inset:0; display:none; flex-direction:column; padding:max(14px, env(safe-area-inset-top)) 16px max(14px, env(safe-area-inset-bottom)); }
+#app { position:fixed; left:0; top:0; width:100vw; height:100vh; transform-origin:0 0; overflow:hidden; }
+.scr { position:absolute; inset:0; display:none; flex-direction:column; padding:max(14px, env(safe-area-inset-top)) 16px max(14px, env(safe-area-inset-bottom)); }
 .scr.on { display:flex; }
 h1 { font:900 44px/1 Impact, "Arial Black", sans-serif; margin:8px 0 2px; letter-spacing:.03em; text-align:center; }
 h1 .b { color:#5aa9ff; } h1 .u { color:#ff4646; }
@@ -62,6 +63,8 @@ button:disabled { opacity:.35; }
 #pad.held { border-color:var(--gold); box-shadow:inset 0 0 60px #ffd21f55; }
 #pad .laces { position:absolute; left:50%; top:16%; bottom:16%; width:10px; transform:translateX(-50%); background:repeating-linear-gradient(0deg, #fff 0 6px, transparent 6px 22px); opacity:.55; border-left:3px solid #fff8; border-right:3px solid #fff8; }
 #pad .say { position:relative; font:900 30px/1.1 Impact, "Arial Black", sans-serif; letter-spacing:.03em; text-shadow:0 2px 0 #0008; padding:0 12px; }
+#padCard { position:relative; margin-top:14px; background:#0007; border-radius:12px; padding:8px 12px; font:600 14px/1.35 system-ui, sans-serif; text-align:left; }
+#padCard b { color:var(--gold); font:900 20px/1 Impact, sans-serif; letter-spacing:.03em; }
 #pad .say small { display:block; font:600 15px/1.3 system-ui, sans-serif; margin-top:8px; color:#ffe9c8; }
 #meter { position:absolute; left:10px; bottom:10px; top:10px; width:10px; border-radius:999px; background:#0006; overflow:hidden; }
 #meter i { position:absolute; bottom:0; left:0; right:0; background:linear-gradient(0deg, #3cf, #ffd21f, #ff4b2b); height:0; }
@@ -69,7 +72,7 @@ button:disabled { opacity:.35; }
 #steer i { position:absolute; top:10%; bottom:10%; width:8px; background:var(--gold); border-radius:4px; left:50%; }
 .row { display:flex; gap:8px; }
 .row > * { flex:1; }
-#toast { position:fixed; left:50%; top:62px; transform:translateX(-50%); font:900 22px/1.1 Impact, sans-serif; letter-spacing:.03em; background:#000c; border:2px solid var(--gold); padding:8px 16px; border-radius:999px; pointer-events:none; opacity:0; transition:opacity .2s; text-align:center; white-space:nowrap; max-width:92vw; overflow:hidden; z-index:5; }
+#toast { position:absolute; left:50%; top:62px; transform:translateX(-50%); font:900 22px/1.1 Impact, sans-serif; letter-spacing:.03em; background:#000c; border:2px solid var(--gold); padding:8px 16px; border-radius:999px; pointer-events:none; opacity:0; transition:opacity .2s; text-align:center; white-space:nowrap; max-width:92vw; overflow:hidden; z-index:5; }
 #toast.on { opacity:1; }
 .chips { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; }
 .chips button { font-size:13px; padding:8px 10px; font-weight:700; }
@@ -82,6 +85,7 @@ button:disabled { opacity:.35; }
 </head>
 <body>
 
+<div id="app">
 <!-- joining -->
 <div class="scr on" id="sJoin">
   <h1><span class="b">GRID</span><span class="u">IRON</span></h1>
@@ -100,6 +104,7 @@ button:disabled { opacity:.35; }
   <h2>Point the top of your phone at the TV</h2>
   <div id="lockPhone"></div>
   <div class="center dim">Hold it like the football: the top of the phone is the nose. Point it straight at the TV, then tap LOCK.<br><br>Do this again any time the aim drifts.</div>
+  <div class="center dim" id="lockMsg" style="margin-top:10px"></div>
   <div style="flex:1"></div>
   <div class="stack">
     <button class="big" id="btnLock">LOCK</button>
@@ -114,13 +119,14 @@ button:disabled { opacity:.35; }
   <div class="foot"><button id="btnRelock">⌖ RE-AIM</button><button id="btnMode">SWIPE MODE</button><button id="btnTeam">TEAM</button></div>
 </div>
 <div id="toast"></div>
+</div>
 
 <script src="net.js"></script>
 <script src="throw.js"></script>
 <script>
 'use strict';
 var $ = function(id){ return document.getElementById(id); };
-var sense = new GThrow.ThrowSense({onSpike: function(){ onSpikeGesture(); }});
+var sense = new GThrow.ThrowSense({onSpike: function(){ onSpikeGesture(); }, onThrow: function(r){ onMotionThrow(r); }});
 var conn = null, st = null, joined = false, swipe = false, sensorsSeen = false;
 // ?pid= is for the headless check, whose phones share one browser's storage
 var pidArg = (location.search.match(/[?&]pid=(\w+)/) || [])[1];
@@ -159,19 +165,32 @@ function goFull(){
     el.requestFullscreen({navigationUI: 'hide'}).then(function(){ return screen.orientation && screen.orientation.lock && screen.orientation.lock('portrait'); }).catch(function(){});
 }
 
+/* JOIN starts a fresh page. iPhones offer "Undo Typing" when the phone is
+   shaken and the page has typing it could undo - and every throw is a
+   shake. A reloaded page has no typing history, so the throws are left
+   alone. The name, team and room ride across in storage. */
 $('btnJoin').onclick = function(){
-  askMotion();
-  goFull(); keepAwake();
   var code = $('inCode').value.trim().toUpperCase();
   myName = $('inName').value.trim() || 'Player';
   save('gridiron_name', myName);
   if(code.length !== 4){ $('joinMsg').textContent = 'The room code is the four letters on the TV.'; return; }
-  location.hash = code;
-  connect(code);
+  if(document.activeElement) document.activeElement.blur();
+  try { sessionStorage.setItem('gridiron_go', code); } catch(e){}
+  history.replaceState(null, '', location.pathname + location.search + '#' + code);
+  location.reload();
 };
+var goCode = null;
+try { goCode = sessionStorage.getItem('gridiron_go'); } catch(e){}
+if(goCode && goCode === $('inCode').value && myName){
+  // the page after JOIN: no text fields in play from here on
+  ['inCode', 'inName'].forEach(function(id){ var el = $(id); el.parentNode.removeChild(el); });
+  show('sLock');
+  $('lockMsg').textContent = 'Joining ' + goCode + '…';
+  setTimeout(function(){ connect(goCode); }, 0);   // after the rest of the page has set itself up
+}
 var joining = null, retry = 0;
 function connect(code){
-  $('joinMsg').textContent = 'Joining ' + code + '…';
+  if($('joinMsg')) $('joinMsg').textContent = 'Joining ' + code + '…';
   if(joining) joining.destroy();
   joining = GNet.join(code, {
     open: function(c){
@@ -179,11 +198,19 @@ function connect(code){
       c.on('data', onData);
       c.on('close', function(){ conn = null; toast('RECONNECTING'); setTimeout(function(){ connect(code); }, 1500); });
       send({t: 'hello', id: myId, name: myName, team: myTeam});
-      if(!joined){ joined = true; show(sensorsSeen || swipe ? 'sGame' : 'sLock'); setTimeout(checkSensors, 1500); }
+      $('lockMsg').textContent = 'In room ' + code + ' as ' + myName + '.';
+      if(!joined){ joined = true; if(swipe || sense.locked) show('sGame'); }
     },
     error: function(e){
-      $('joinMsg').textContent = e === 'peer-unavailable' ? 'No room ' + code + '. Check the code on the TV.' : 'Could not connect (' + e + '). Trying again…';
-      if(joined || e !== 'peer-unavailable') setTimeout(function(){ connect(code); }, 2000 + Math.min(8000, (retry++) * 1000));
+      var msg = e === 'peer-unavailable' ? 'No room ' + code + '. Check the code on the TV.' : 'Could not connect (' + e + '). Trying again…';
+      $('lockMsg').textContent = msg;
+      if(!joined && e === 'peer-unavailable'){
+        // a room that has gone: back to a fresh join screen
+        try { sessionStorage.removeItem('gridiron_go'); } catch(x){}
+        if(!$('inCode')){ location.reload(); return; }
+        $('joinMsg').textContent = msg; show('sJoin'); return;
+      }
+      setTimeout(function(){ connect(code); }, 2000 + Math.min(8000, (retry++) * 1000));
     }
   });
 }
@@ -205,14 +232,21 @@ addEventListener('devicemotion', function(e){
   if(e.rotationRate && e.rotationRate.alpha != null) sensorsSeen = true;
   sense.motion(e.rotationRate, e.acceleration, e.accelerationIncludingGravity, dt, now);
 });
-function checkSensors(){
-  if(!sensorsSeen){ swipe = true; paintMode(); show('sGame'); toast('SWIPE MODE'); }
-}
 $('btnLock').onclick = function(){
-  if(sense.lock()){ toast('LOCKED'); vibrate(40); show('sGame'); }
-  else { swipe = true; paintMode(); show('sGame'); toast('SWIPE MODE'); }
+  askMotion();                     // iOS: from inside this tap, first thing
+  goFull(); keepAwake();
+  $('lockMsg').textContent = 'Reading the sensors…';
+  var t0 = performance.now();
+  (function wait(){
+    if(sensorsSeen && sense.q){
+      sense.lock(); swipe = false; paintMode();
+      toast('LOCKED'); vibrate(40); show('sGame'); return;
+    }
+    if(performance.now() - t0 > 1500){ swipe = true; paintMode(); show('sGame'); toast('NO SENSORS: SWIPE MODE'); return; }
+    setTimeout(wait, 50);
+  })();
 };
-$('btnSwipe').onclick = function(){ swipe = true; paintMode(); show('sGame'); };
+$('btnSwipe').onclick = function(){ goFull(); keepAwake(); swipe = true; paintMode(); show('sGame'); };
 $('btnRelock').onclick = function(){ if(swipe && !sensorsSeen) return toast('NO SENSORS'); show('sLock'); };
 $('btnMode').onclick = function(){ swipe = !swipe; if(!swipe && !sensorsSeen){ swipe = true; toast('NO SENSORS'); } paintMode(); };
 $('btnTeam').onclick = function(){ myTeam = myTeam === 'byu' ? 'utah' : 'byu'; save('gridiron_team', myTeam); paintTeam(); send({t: 'team', team: myTeam}); toast(myTeam.toUpperCase()); };
@@ -251,7 +285,7 @@ function render(){
   if(st.scr === 'game' && v){
     $('barL').textContent = st.score ? 'BYU ' + st.score.byu + ' · UTAH ' + st.score.utah : (st.you.stats.pts || 0) + ' pts';
     $('barC').textContent = v.untimed ? (st.score ? 'OT' : '') : fmtClock(v.clock) + (v.running ? '' : ' ■');
-    $('barR').textContent = v.over ? 'FINAL' : ord(Math.min(4, v.down)) + ' & ' + (v.goal ? 'G' : v.toGo);
+    $('barR').textContent = st.practice ? 'PRACTICE' : v.over ? 'FINAL' : ord(Math.min(4, v.down)) + ' & ' + (v.goal ? 'G' : v.toGo);
   } else { $('barL').textContent = st.you.name; $('barC').textContent = 'ROOM ' + st.code; $('barR').textContent = st.you.team.toUpperCase(); }
 
   if(st.scr === 'lobby') key = 'lobby:' + JSON.stringify(st.cfg) + st.roster.length;
@@ -259,11 +293,12 @@ function render(){
   else if(st.role === 'qb'){
     if(v.over) key = 'qb:over';
     else if(v.phase === 'huddle') key = 'qb:huddle:' + st.plays.join(',') + v.tos + (v.running ? 'r' : '');
-    else if(v.phase === 'presnap' || v.held || v.kicking) key = 'qb:pad';
+    else if(v.phase === 'presnap' || v.held || v.kicking || st.practice) key = 'qb:pad';
     else if(v.carrying) key = 'qb:run';
     else key = 'qb:wait:' + v.text;
   } else if(st.role === 'def') key = 'def:' + v.phase + (v.phase === 'huddle' ? myCover : '');
-  else key = 'watch:' + st.role + v.phase + st.qbName + (v.running ? 'r' : '');
+  else key = 'watch:' + st.role + v.phase + st.qbName + (v.running ? 'r' : '') + (st.card ? st.card.result + st.card.mph : '');
+  sense.arm(!!(st.scr === 'game' && st.role === 'qb' && v && (v.held || v.kicking) && !swipe));
   if(key !== lastView){ lastView = key; build(key); }
   if(key === 'qb:pad') paintPad();
 }
@@ -274,7 +309,7 @@ function build(key){
     var c = st.cfg;
     h = '<h2>Lobby</h2>' +
       '<div class="stack">' +
-      [['pass', 'TOUCHDOWN PASS', 'warm-up · five throws each'], ['drill', 'TWO-MINUTE DRILL', 'beat the clock together'], ['versus', 'HOLY WAR', 'BYU phones vs Utah phones']]
+      [['pass', 'TOUCHDOWN PASS', 'practice · no defence · start here'], ['drill', 'TWO-MINUTE DRILL', 'beat the clock together'], ['versus', 'HOLY WAR', 'BYU phones vs Utah phones']]
         .map(function(m){ return '<button data-cfg-mode="' + m[0] + '" class="' + (c.mode === m[0] ? 'on' : '') + '">' + m[1] + '<br><small class="dim" style="font-weight:500">' + m[2] + '</small></button>'; }).join('') +
       '</div>' +
       (c.mode === 'drill' ? '<div class="chips" style="margin-top:8px">' + [['saturday', 'Saturday'], ['harline', "Harline '06"], ['ferrin', "Ferrin '24"], ['george', "George '09 OT"], ['kids', 'Backyard (kids)']]
@@ -341,7 +376,7 @@ function build(key){
   }
   // watching
   var who = st.role === 'off' ? 'Your team has the ball.' : st.role === 'def' ? 'Stop them!' : '';
-  M.innerHTML = '<div class="center" style="font:900 28px Impact,sans-serif">' + esc(st.qbName) + ' is the QB</div>' +
+  M.innerHTML = '<div class="center" style="font:900 28px Impact,sans-serif">' + esc(st.qbName) + ' is the QB</div>' + (st.card ? '<div id="padCard">' + cardHtml(st.card) + '</div>' : '') +
     '<div class="center dim">' + who + ' Watch the TV.' + (st.next === st.you.name ? '<br><b style="color:var(--gold)">You\'re up next!</b>' : '') + '</div>' +
     (st.role === 'off' && v.running && v.tos > 0 && v.phase === 'huddle' ? '<button id="btnTO2">TIMEOUT (' + v.tos + ')</button>' : '');
   if($('btnTO2')) $('btnTO2').onclick = function(){ send({t: 'timeout'}); };
@@ -349,64 +384,68 @@ function build(key){
 }
 function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]; }); }
 
-/* ---------- the football in your hand ---------- */
-var holding = false, touchStart = null;
+/* ---------- the football in your hand ----------
+   A tap hikes it (practice snaps by itself). Then the throw is the motion:
+   throw.js is armed while the ball is in your hand and reports the throw
+   by itself. Swipe mode: a flick up the pad instead. */
+var touchStart = null;
 function bindPad(pad){
   function down(x, y){
     if(!st || st.role !== 'qb') return;
-    var v = st.v;
-    if(v.phase === 'presnap'){ send({t: 'snap'}); vibrate(30); }
-    holding = true; sense.down();
+    goFull();
+    if(st.v.phase === 'presnap' && !st.practice){ send({t: 'snap'}); vibrate(30); }
     touchStart = {x: x, y: y, t: performance.now()};
-    paintPad();
   }
   function up(x, y){
-    if(!holding) return;
-    holding = false;
-    var now = performance.now(), r = null;
-    // a long drag up the screen is a swipe throw, whichever mode
-    if(touchStart){
-      var sw = GThrow.swipeThrow(x - touchStart.x, y - touchStart.y, now - touchStart.t, innerWidth);
-      if(sw && (swipe || Math.hypot(x - touchStart.x, y - touchStart.y) > 90)) r = sw;
-    }
-    var mo = sense.up(now);
-    if(!r && !swipe) r = mo;
-    var v = st && st.v;
-    if(r && v && (v.held || v.kicking || v.phase === 'presnap' || v.phase === 'live')){
-      send({t: 'throw', h: r.h, loft: r.loft, power: r.power, spin: r.spin});
-      vibrate(25);
-      toast(r.power > 0.75 ? 'ROCKET!' : r.power < 0.25 ? 'SOFT' : '');
-    } else if(v && (v.held || v.kicking)) toast('PUMP FAKE');
+    if(!touchStart || !st) return;
+    var d = toLocal(x - touchStart.x, y - touchStart.y), now = performance.now();
+    var sw = GThrow.swipeThrow(d[0], d[1], now - touchStart.t, Math.min(innerWidth, innerHeight));
     touchStart = null;
-    paintPad();
+    var v = st.v;
+    if(sw && (swipe || Math.hypot(d[0], d[1]) > 90) && (v.held || v.kicking || v.phase === 'presnap')){
+      send({t: 'throw', h: sw.h, loft: sw.loft, power: sw.power, spin: sw.spin, kind: 'SWIPE'});
+      vibrate(25);
+    }
   }
   pad.addEventListener('touchstart', function(e){ e.preventDefault(); var t = e.changedTouches[0]; down(t.clientX, t.clientY); }, {passive: false});
   pad.addEventListener('touchend', function(e){ e.preventDefault(); var t = e.changedTouches[0]; up(t.clientX, t.clientY); }, {passive: false});
-  pad.addEventListener('touchcancel', function(e){ var t = e.changedTouches[0]; up(t.clientX, t.clientY); }, {passive: false});
+  pad.addEventListener('touchcancel', function(){ touchStart = null; }, {passive: false});
   pad.addEventListener('mousedown', function(e){ down(e.clientX, e.clientY); });
   pad.addEventListener('mouseup', function(e){ up(e.clientX, e.clientY); });
-  // swipe aim follows the finger
-  pad.addEventListener('touchmove', function(e){ if(touchStart){ var t = e.changedTouches[0]; dragAim = Math.atan2(t.clientX - touchStart.x, touchStart.y - t.clientY) * 1.1; } }, {passive: true});
+  pad.addEventListener('touchmove', function(e){ if(touchStart){ var t = e.changedTouches[0], d = toLocal(t.clientX - touchStart.x, t.clientY - touchStart.y); dragAim = Math.atan2(d[0], -d[1]) * 1.1; } }, {passive: true});
+}
+function onMotionThrow(r){
+  if(!st || st.role !== 'qb' || !st.v || !(st.v.held || st.v.kicking) || swipe) return;
+  send({t: 'throw', h: r.h, loft: r.loft, power: r.power, spin: r.spin, kind: r.kind, arc: r.arc, el: r.el});
+  vibrate(40);
+  toast(st.v.kicking ? 'KICK!' : r.kind + (r.power > 0.75 ? ' · ROCKET' : ''));
 }
 var dragAim = null;
+function cardHtml(c){
+  return '<b>' + esc(c.kind) + '</b> &nbsp;' + c.mph + ' mph · ' + c.loft + '° up · ' + esc(c.aim) + ' · spiral ' + esc(c.spiral) +
+    (c.result ? '<br><span style="color:var(--gold);font-weight:800">' + esc(c.result) + '</span>' : '');
+}
 function paintPad(){
   var say = $('padSay');
   if(!say || !st) return;
   var v = st.v, pad = $('pad');
-  pad.classList.toggle('held', holding);
+  pad.classList.toggle('held', !!(v.held || v.kicking));
   var t;
-  if(v.phase === 'presnap') t = v.call === 'fg' ? 'THUMB DOWN TO SNAP<small>then swing the phone like a kicking leg and lift your thumb</small>'
-    : 'THUMB DOWN TO HIKE<small>' + (swipe ? 'then swipe up the screen to throw' : 'keep it down: that\'s the ball in your hand') + '</small>';
-  else if(v.kicking) t = holding ? 'SWING!<small>lift your thumb as you kick</small>' : 'THUMB DOWN<small>then swing and let go</small>';
-  else if(v.held) t = holding ? (swipe ? 'SWIPE UP!' : 'THROW!') + '<small>' + (swipe ? 'flick toward your receiver' : 'lift your thumb as you let go — keep hold of the phone!') + '</small>'
-    : 'THUMB DOWN<small>you still have the ball</small>';
+  if(v.phase === 'presnap') t = st.practice ? 'GET SET…<small>the ball snaps by itself. Then throw your phone at your receiver — hold on to it!</small>'
+    : v.call === 'fg' ? 'TAP TO SNAP<small>then swing the phone through like a kicking leg</small>'
+    : 'TAP TO HIKE<small>' + (swipe ? 'then swipe up the screen to throw' : 'then just throw — keep hold of the phone!') + '</small>';
+  else if(v.kicking) t = 'KICK!<small>swing the phone through</small>';
+  else if(v.held) t = (swipe ? 'SWIPE UP!' : 'THROW IT!') + '<small>' + (swipe ? 'flick toward your receiver' : 'high and easy = lob · level and fast = bullet') + '</small>';
+  else if(st.practice) t = 'NEXT REP…';
   else t = '';
-  if(say.innerHTML !== t) say.innerHTML = t;
+  var card = st.practice && st.card ? '<div id="padCard">' + cardHtml(st.card) + '</div>' : '';
+  if(say.innerHTML !== t + card) say.innerHTML = t + card;
 }
 function steerTouch(e){
   e.preventDefault();
-  var t = e.changedTouches[0], r = e.currentTarget.getBoundingClientRect();
-  touchSteer = Math.max(-1, Math.min(1, ((t.clientX - r.left) / r.width) * 2 - 1));
+  var t = e.changedTouches[0], el = e.currentTarget, r = el.getBoundingClientRect();
+  var d = toLocal(t.clientX - (r.left + r.width / 2), t.clientY - (r.top + r.height / 2));
+  touchSteer = Math.max(-1, Math.min(1, d[0] / (el.offsetWidth / 2)));
 }
 var touchSteer = null;
 
@@ -421,8 +460,9 @@ function onSpikeGesture(){
 setInterval(function(){
   if(!st || st.role !== 'qb' || !st.v) return;
   var v = st.v;
+  sense.arm(st.scr === 'game' && (v.held || v.kicking) && !swipe);
   if(v.phase === 'presnap' || v.held || v.kicking){
-    var a = swipe ? (dragAim != null && holding ? {h: dragAim} : {h: 0}) : sense.aim();
+    var a = swipe ? (dragAim != null && touchStart ? {h: dragAim} : {h: 0}) : sense.aim();
     if(a) send({t: 'aim', h: a.h, p: sense.live});
     var mi = document.querySelector('#meter i');
     if(mi) mi.style.height = Math.round(sense.live * 100) + '%';
@@ -437,7 +477,32 @@ setInterval(function(){
 }, 50);
 
 // already have a code in the address? fill it in; joining still needs the tap (iOS motion permission)
-if($('inCode').value.length === 4 && myName) $('btnJoin').focus();
+/* ---------- keeping it upright ----------
+   Android: fullscreen + screen.orientation.lock('portrait'), asked again on
+   taps (it only works in fullscreen). iPhones cannot lock from a web page,
+   so when one turns the page anyway, the whole layout is turned back the
+   other way and stays upright on the phone. The throw maths does not care:
+   it reads the phone's own axes, not the screen's. */
+var screenTurn = 0;
+function fitOrientation(){
+  var ang = (screen.orientation && typeof screen.orientation.angle === 'number') ? screen.orientation.angle : (window.orientation || 0);
+  ang = ((ang % 360) + 360) % 360;
+  var app = $('app'), W = innerWidth, H = innerHeight;
+  screenTurn = (ang === 90 || ang === 270) && W > H ? ang : 0;
+  if(screenTurn === 90){ app.style.width = H + 'px'; app.style.height = W + 'px'; app.style.transform = 'translate(0px,' + H + 'px) rotate(-90deg)'; }
+  else if(screenTurn === 270){ app.style.width = H + 'px'; app.style.height = W + 'px'; app.style.transform = 'translate(' + W + 'px,0px) rotate(90deg)'; }
+  else { app.style.width = ''; app.style.height = ''; app.style.transform = ''; }
+}
+/* a movement on the glass, in the turned layout's own directions */
+function toLocal(dx, dy){
+  if(screenTurn === 90) return [-dy, dx];
+  if(screenTurn === 270) return [dy, -dx];
+  return [dx, dy];
+}
+addEventListener('resize', fitOrientation);
+addEventListener('orientationchange', function(){ setTimeout(fitOrientation, 120); });
+if(screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', fitOrientation);
+fitOrientation();
 </script>
 </body>
 </html>

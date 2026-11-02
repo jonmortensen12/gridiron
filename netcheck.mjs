@@ -62,8 +62,12 @@ try {
     phones.push(ph);
   }
   ok(await until(() => tv.evaluate(() => GRID.players.size === 2)), 'both phones are on the TV');
-  // no sensors in a headless browser: swipe mode by itself
-  ok(await until(() => phones[0].evaluate(() => document.getElementById('sGame').classList.contains('on')), 4000), 'a phone with no motion sensors goes to swipe mode');
+  // JOIN reloads the page so no typing is left to "undo" when the phone is shaken
+  ok(await until(() => phones[0].evaluate(() => !document.getElementById('inName') && document.getElementById('sLock').classList.contains('on'))),
+    'after JOIN the page is fresh: no text fields left (no shake-to-undo), the LOCK screen up');
+  for(const ph of phones) await ph.click('#btnLock');
+  // no sensors in a headless browser: LOCK falls back to swipe mode
+  ok(await until(() => phones[0].evaluate(() => document.getElementById('sGame').classList.contains('on')), 4000), 'LOCK on a phone with no motion sensors goes to swipe mode');
   ok(await until(() => phones[0].evaluate(() => !!document.getElementById('btnStart'))), 'the phone shows the lobby');
   await phones[0].screenshot({path: SHOTS + '/phone-lobby.png'});
 
@@ -84,13 +88,15 @@ try {
   await sleep(600);
   await tv.screenshot({path: SHOTS + '/tv-presnap.png'});
   await qbp.screenshot({path: SHOTS + '/phone-pad.png'});
-  // hike: thumb down; wait for the routes; then a swipe up and to the right
+  // hike: a tap; wait for the routes; then a swipe up and to the right
   const box = await qbp.locator('#pad').boundingBox();
   const cx = box.x + box.width / 2, cy = box.y + box.height * 0.8;
-  await qbp.mouse.move(cx, cy); await qbp.mouse.down();
-  ok(await until(() => tv.evaluate(() => GRID.G.phase === 'live')), 'thumb down hikes it');
+  await qbp.mouse.click(cx, cy);
+  ok(await until(() => tv.evaluate(() => GRID.G.phase === 'live')), 'a tap hikes it');
   await sleep(1300);
   await tv.screenshot({path: SHOTS + '/tv-live.png'});
+  await qbp.screenshot({path: SHOTS + '/phone-throw-now.png'});
+  await qbp.mouse.move(cx, cy); await qbp.mouse.down();
   await qbp.mouse.move(cx + 40, cy - 120); await qbp.mouse.move(cx + 70, cy - 300); await qbp.mouse.up();
   ok(await until(() => tv.evaluate(() => GRID.G.thrown || GRID.G.sacked)), 'a swipe up the screen throws it');
   await sleep(500);
@@ -121,20 +127,17 @@ try {
     await qbp.click('[data-play=post]');
     await until(() => qbp.evaluate(() => !!document.getElementById('pad')));
     const b2 = await qbp.locator('#pad').boundingBox();
-    await qbp.mouse.move(b2.x + b2.width / 2, b2.y + b2.height / 2); await qbp.mouse.down();
+    await qbp.mouse.click(b2.x + b2.width / 2, b2.y + b2.height / 2);
     await until(() => tv.evaluate(() => GRID.G.phase === 'live'));
     await sleep(1600);
-    // the arm comes over: 1000 deg/s about the phone's x axis for a tenth of a second
-    // and the thumb comes up at the release (in the page: a slow software-drawn page must not put a gap between them)
+    // nothing touches the screen now: the arm comes over, 1000 deg/s forward for a tenth of a second
     await qbp.evaluate(async () => {
       for(let i = 0; i < 6; i++){ __fire(0, 80 - i * 15, 0, {alpha: -1000, beta: 0, gamma: 0}); await new Promise(r => setTimeout(r, 16)); }
-      const r = document.getElementById('pad').getBoundingClientRect();
-      document.getElementById('pad').dispatchEvent(new MouseEvent('mouseup', {clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true}));
+      for(let i = 0; i < 6; i++){ __fire(0, -10, 0, {alpha: 0, beta: 0, gamma: 0}); await new Promise(r => setTimeout(r, 16)); }
     });
-    await qbp.mouse.up();
-    ok(await until(() => tv.evaluate(() => GRID.G.thrown || GRID.G.sacked)), 'the motion throw reaches the TV');
+    ok(await until(() => tv.evaluate(() => GRID.G.thrown || GRID.G.sacked)), 'the motion alone throws it: no touch at the release');
     const lt = await tv.evaluate(() => GRID.lastThrow);
-    ok(lt && lt.power > 0.6 && Math.abs(lt.h) < 0.2, `and it was thrown hard and straight (power ${lt ? lt.power.toFixed(2) : '-'}, aim ${lt ? (lt.h * 57.3).toFixed(1) : '-'} deg)`);
+    ok(lt && lt.power > 0.6 && Math.abs(lt.h) < 0.2 && lt.kind, `and it was thrown hard and straight (power ${lt ? lt.power.toFixed(2) : '-'}, aim ${lt ? (lt.h * 57.3).toFixed(1) : '-'} deg, ${lt && lt.kind})`);
     await until(() => tv.evaluate(() => GRID.G.over || GRID.G.phase === 'huddle'), 14000);
   }
 
@@ -199,15 +202,21 @@ try {
   await phones[0].click('#btnStart');
   ok(await until(() => tv.evaluate(() => GRID.screen === 'game' && GRID.G.mode === 'pass')), 'Touchdown Pass starts');
   qi = await qbIdx(); qbp = phones[qi];
-  ok(await until(() => qbp.evaluate(() => !document.querySelector('[data-play=run]') && !!document.querySelector('[data-play=post]'))), 'only passes on the menu');
-  await qbp.click('[data-play=post]');
-  await until(() => qbp.evaluate(() => !!document.getElementById('pad')));
+  ok(await tv.evaluate(() => GRID.G.players.length > 0 && GRID.G.players.every(p => p.side === 'o')), 'no defence on the practice field');
+  ok(await until(() => qbp.evaluate(() => !!document.getElementById('pad'))), 'no play menu: the phone goes straight to the football');
+  ok(await until(() => tv.evaluate(() => GRID.G.phase === 'live'), 6000), 'and the ball snaps by itself');
+  await sleep(1200);
   const b4 = await qbp.locator('#pad').boundingBox();
   await qbp.mouse.move(b4.x + b4.width / 2, b4.y + b4.height * 0.8); await qbp.mouse.down();
-  await sleep(1500);
   await qbp.mouse.move(b4.x + b4.width / 2, b4.y + b4.height * 0.5); await qbp.mouse.move(b4.x + b4.width / 2 - 10, b4.y + 10); await qbp.mouse.up();
-  ok(await until(() => tv.evaluate(() => GRID.G.thrown || GRID.G.sacked)), 'a pass is thrown');
-  ok(await until(() => tv.evaluate(() => GRID.G.phase === 'huddle' && GRID.G.plays === 0), 12000), 'and the next throw is set up');
+  ok(await until(() => tv.evaluate(() => GRID.G.thrown)), 'a pass is thrown');
+  ok(await until(() => tv.evaluate(() => !document.getElementById('card').classList.contains('hide') && /mph/.test(document.getElementById('card').textContent))), 'the TV shows the throw\'s report card');
+  await until(() => tv.evaluate(() => /CAUGHT|MISSED|DROPPED|TOUCHDOWN|INCOMPLETE/.test(document.getElementById('card').textContent)), 8000);
+  ok(await until(() => qbp.evaluate(() => !!document.getElementById('padCard') && /mph/.test(document.getElementById('padCard').textContent))), 'and so does the phone');
+  await tv.screenshot({path: SHOTS + '/tv-practice.png'});
+  await qbp.screenshot({path: SHOTS + '/phone-practice.png'});
+  await tv.evaluate(() => { window.__g = GRID.G; });
+  ok(await until(() => tv.evaluate(() => GRID.G !== window.__g && GRID.G.phase === 'presnap'), 12000), 'and the next rep sets itself up');
 } catch(e){
   console.log('  FAIL ' + e.stack);
   fails++;

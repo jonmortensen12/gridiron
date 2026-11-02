@@ -11,7 +11,9 @@
    One drive at a time. A drive is a scenario (score, clock, ball, timeouts)
    and a run of plays: huddle -> pre-snap -> live -> dead -> huddle. The
    phones send calls into it (callPlay, snap, throwBall, steer, spike,
-   timeout, kick) and read `g.ev` for what just happened. */
+   timeout, kick) and read `g.ev` for what just happened - and empty it
+   (g.ev = []) once read: a call or a throw from a phone lands between
+   steps, so step() must not throw its events away. */
 (function(root){
 'use strict';
 
@@ -103,6 +105,7 @@ function newDrive(opts){
     ball: opts.ball != null ? opts.ball : sc.ball, down: 1, toGo: 10,
     tos: opts.tos != null ? opts.tos : sc.tos,
     easy: !!sc.easy || !!opts.easy,
+    practice: !!opts.practice,              // Touchdown Pass: receivers and nobody else
     phase: 'huddle', t: 0, phaseT: 0, clockRunning: false, restartIn: 0,
     playClock: 40, call: null, cover: null, dcall: null,
     players: [], ballObj: null, carrier: null, events: [], ev: [],
@@ -154,6 +157,7 @@ function lineUp(g){
     p.rpts.forEach(function(w){ w[0] = clamp(w[0], -HALF_W + 1.5, HALF_W - 1.5); w[1] = Math.min(w[1], 108.5); });
   });
   o.QB.key = 'QB';
+  if(g.practice){ g.d = {}; g.pocket = 1e9; g.react = 0.4; return; }
 
   // defence
   var cov = g.cover, d = {};
@@ -381,7 +385,7 @@ function kick(g, k){
 
 /* ---------- running the clock ---------- */
 function step(g, dt){
-  g.ev = [];
+  if(g.ev.length > 500) g.ev = [];             // nobody reading (the attract loop, the checks)
   if(g.over) { g.t += dt; return g; }
   g.t += dt; g.phaseT += dt;
   if(g.clockRunning && !g.untimed){
@@ -418,6 +422,7 @@ function live(g, dt){
 
   // the QB drops back; on a run he hands off
   var qb = o.QB;
+  if(g.practice && !g.thrown && g.liveT > 9){ emit(g, 'reset', {text: 'TOO SLOW - RESET'}); deadBall(g, g.startBall, false, 'inc'); return; }
   if(!g.thrown && g.carrier === qb){
     var dropTo = g.startBall - 1.2 - (P.drop || 0);
     if(P.kind === 'run'){
@@ -468,7 +473,10 @@ function live(g, dt){
     if(tryCatch(g)) return;
     if(b.z <= 0.05){
       b.z = 0.05;
-      emit(g, 'incomplete', {text: 'INCOMPLETE'});
+      // how far from anybody it came down: the practice field's report card
+      var miss = 1e9, by = null;
+      targets(g).forEach(function(rc){ var d = len(rc.x - b.x, rc.y - b.y); if(d < miss){ miss = d; by = rc; } });
+      emit(g, 'incomplete', {text: 'INCOMPLETE', miss: Math.round(miss), dir: by ? (b.y > by.y + 1 ? 'long' : b.y < by.y - 1 ? 'short' : b.x > by.x ? 'right' : 'left') : ''});
       deadBall(g, g.startBall, false, 'inc');
       return;
     }
@@ -648,9 +656,11 @@ function tryCatch(g){
     g.stats.comp++;
     emit(g, 'catch', {text: 'CAUGHT!', by: o.key, at: [o.x, o.y], air: Math.round(o.y - g.startBall)});
     if(o.y >= 100){ touchdown(g); }
+    else if(g.practice) deadBall(g, o.y, true, 'caught');      // practice: the catch is the point
     return true;
   }
-  emit(g, contested ? 'breakup' : 'drop', {text: contested ? 'BROKEN UP!' : 'DROPPED!'});
+  emit(g, contested ? 'breakup' : 'drop', {text: contested ? 'BROKEN UP!' : 'DROPPED!',
+    why: contested ? 'defender' : hot > 0.05 ? 'too hot' : b.z > 2.5 ? 'too high' : b.wob > 0.3 ? 'wobbly ball' : 'just dropped it'});
   deadBall(g, g.startBall, false, 'inc');
   return true;
 }

@@ -35,6 +35,10 @@ canvas#view { position:fixed; inset:0; width:100%; height:100%; display:block; }
 #join b { font-size:1.9vw; letter-spacing:.15em; color:var(--gold); }
 #arm { position:fixed; left:2vw; bottom:3.2vh; width:1.4vw; height:22vh; background:#0008; border-radius:999px; overflow:hidden; }
 #arm i { position:absolute; left:0; right:0; bottom:0; background:linear-gradient(0deg, #3cf, #ffd21f, #ff4b2b); height:0; }
+#card { position:fixed; left:4vw; top:11vh; background:var(--panel); border-radius:14px; padding:.8em 1.1em; font-size:1.25vw; min-width:19vw; box-shadow:0 6px 30px #0008; }
+#card .k { font:900 2.6vw/1 Impact, "Arial Black", sans-serif; letter-spacing:.04em; color:var(--gold); }
+#card .r { font:800 1.5vw/1.2 system-ui, sans-serif; margin-top:.4em; }
+#card table { border-collapse:collapse; margin-top:.4em; } #card td { padding:.1em .6em .1em 0; } #card td:first-child { color:var(--dim); }
 #pocket { position:fixed; left:50%; bottom:11.5vh; transform:translateX(-50%); width:26vw; height:.8vh; background:#0008; border-radius:999px; overflow:hidden; }
 #pocket i { display:block; height:100%; background:#fff; width:100%; }
 /* lobby and results */
@@ -86,6 +90,7 @@ table.st td:first-child, table.st th:first-child { text-align:left; }
   <div id="dd">1ST &amp; 10</div>
   <div id="pc">:40</div>
 </div>
+<div id="card" class="hide"></div>
 <div id="join" class="hide"><canvas id="qrSmall" width="180" height="180"></canvas><div>Join<br><b id="codeSmall"></b></div></div>
 
 <div id="lobby">
@@ -97,8 +102,9 @@ table.st td:first-child, table.st th:first-child { text-align:left; }
     <div class="card roster"><h3>On the field</h3><div id="roster"><div style="color:var(--dim)">Scan the code to join.</div></div></div>
   </div>
   <div class="how"><b>How to throw:</b> hold your phone like the ball, top of the phone is the nose. Point it at the TV and tap LOCK.
-    Thumb on the screen hikes it and holds the ball. Throw (keep hold of your phone!) and <b>lift your thumb</b> as you let go.
-    Let go early for a lob, late for a bullet. Tilt to run after the catch. Point the phone at the floor and flick it to spike.
+    Tap the phone to hike, then <b>just throw</b> (keep hold of your phone!): the motion is the throw.
+    A high release with an easy arm is a lob, a level release with a fast arm is a bullet. Tilt to run after the catch.
+    Flick the phone at the floor to spike. Touchdown Pass is a practice field with no defence: start there.
     <br>No motion sensors, or little hands? Swipe up the screen instead.</div>
   <div class="go" id="go">Waiting for phones. A phone's START begins, or press Enter.</div>
 </div>
@@ -176,7 +182,7 @@ function drawQr(cv, text){
 
 /* ---------------- the lobby ---------------- */
 const MODES = {
-  pass:   {k: 1, name: 'TOUCHDOWN PASS', p: 'Warm-up. Everybody gets five throws, most points wins. Learn the throw here.'},
+  pass:   {k: 1, name: 'TOUCHDOWN PASS', p: 'Practice: no defence, plays call themselves, and every throw gets a report. Learn the throw here.'},
   drill:  {k: 2, name: 'TWO-MINUTE DRILL', p: 'Your team against the clock and the defence. The QB passes round every play.'},
   versus: {k: 3, name: 'HOLY WAR', p: 'BYU phones against Utah phones: a two-minute drive each, the defence calls coverage. Tied? Overtime from the 25.'}
 };
@@ -208,12 +214,12 @@ drawModes();
 /* ---------------- starting a game ---------------- */
 function startGame(){
   SND.start();
-  attract = null;
+  attract = null; card = null;
   const ps = active();
   ps.forEach(p => p.stats = blankStats());
   results = null;
   if(cfg.mode === 'pass'){
-    sess = {kind: 'pass', order: ps.map(p => p.id), turn: 0, left: 5, scores: {}};
+    sess = {kind: 'pass', order: ps.map(p => p.id), turn: 0, rep: 0, scores: {}};
     if(!sess.order.length) sess.order = ['tv'];
     newPassThrow();
   } else if(cfg.mode === 'versus'){
@@ -231,7 +237,7 @@ function startGame(){
   show();
   const sc = sess.kind === 'drill' ? S.SCENARIOS[cfg.sc] : null;
   bannerShow(sess.kind === 'pass' ? 'TOUCHDOWN PASS' : sess.kind === 'versus' ? 'HOLY WAR' : sc.name.toUpperCase(),
-    sess.kind === 'drill' ? sc.blurb : sess.kind === 'versus' ? 'BYU drives first' : 'Five throws each', 3.5);
+    sess.kind === 'drill' ? sc.blurb : sess.kind === 'versus' ? 'BYU drives first' : 'Practice field: just throw', 3.5);
   SND.charge();
 }
 
@@ -244,15 +250,28 @@ function newVersusDrive(){
   pickQb(true);
 }
 
+/* Touchdown Pass: a practice field. No defence, the plays call themselves
+   in turn, the ball snaps by itself, and every throw gets a report card on
+   the TV and the phone. Throwers take turns, one rep each. No end: LOBBY. */
+const PRACTICE = ['slants', 'outs', 'curls', 'post', 'hail', 'screen'];
 function newPassThrow(){
-  const rnd = Math.random();
-  G = S.newDrive({seed: seed(sess.turn * 5 + sess.left), mode: 'pass', assist: cfg.assist, offense: 'byu', clock: 0, ot: true,
-                  ball: Math.round(35 + rnd * 45), tos: 0});
+  const rnd = seedArg ? ((sess.rep * 37) % 100) / 100 : Math.random();
+  G = S.newDrive({seed: seed(sess.rep), mode: 'pass', practice: true, assist: cfg.assist, offense: 'byu', clock: 0, ot: true,
+                  ball: Math.round(30 + rnd * 45), tos: 0});
   const p = players.get(sess.order[sess.turn]);
   const t = p ? p.team : 'byu';
   G.offense = t; G.defense = other(t);
   field.setTeams(t, other(t));
+  S.callPlay(G, PRACTICE[sess.rep % PRACTICE.length]);
   sess.done = false;
+}
+let card = null;      // the last throw's report
+function cardHtml(c){
+  if(!c) return '';
+  const rows = [['Speed', c.mph + ' mph'], ['Launch', c.loft + '°'], ['Aim', c.aim], ['Spiral', c.spiral]];
+  if(c.arm) rows.push(['Arm', c.arm]);
+  return `<div class="k">${esc(c.kind)}</div><div>${esc(c.who)}</div><table>${rows.map(r => `<tr><td>${r[0]}</td><td>${esc(r[1])}</td></tr>`).join('')}</table>` +
+    (c.result ? `<div class="r">${esc(c.result)}</div>` : '');
 }
 
 /* Who throws this play. */
@@ -299,7 +318,7 @@ function onMsg(p, m){
     case 'call': if(sess.kind === 'pass' && !/^(slants|outs|curls|post|screen|hail)$/.test(m.play)) break; S.callPlay(G, m.play); break;
     case 'snap': S.snap(G); break;
     case 'throw':
-      lastThrow = m;
+      lastThrow = m; lastThrowT = performance.now();
       if(G.call === 'fg') S.kick(G, {h: +m.h || 0, power: +m.power || 0});
       else if(S.throwBall(G, {h: +m.h || 0, loft: +m.loft, power: +m.power || 0, spin: +m.spin || 0})) p.stats.throws++;
       break;
@@ -332,7 +351,7 @@ function stateFor(p){
     you: {name: p.name, team: p.team, stats: p.stats},
     roster: active().map(x => ({name: x.name, team: x.team})),
     next: sess && sess.kind === 'pass' ? (players.get(sess.order[(sess.turn + 1) % sess.order.length]) || {}).name : null,
-    res: results};
+    res: results, practice: !!(sess && sess.kind === 'pass' && screen === 'game'), card: sess && sess.kind === 'pass' ? card : null};
 }
 function push(p){ if(p.conn && !p.gone) try { p.conn.send(stateFor(p)); } catch(e){} }
 function pushAll(){ active().forEach(push); }
@@ -377,21 +396,22 @@ function tick(dt){
   if(!G || screen !== 'game') return;
   // a TV with nobody on it (keyboard play): nothing to do but wait
   if(!qbId && !keyboardMode && sess.kind !== 'pass') S.bot(G, dt, {aim: 6, dist: 0.12});
+  // practice snaps itself once everybody is set
+  if(sess.kind === 'pass' && G.phase === 'presnap' && G.phaseT > 2.2) S.snap(G);
   S.step(G, dt);
   if(G.phase === 'huddle' && prevPhase === 'dead'){ pickQb(); pushAll(); const q = qb(); if(q) buzz(q, 120); }
   prevPhase = G.phase;
-  G.ev.forEach(onEvent);
+  const evs = G.ev; G.ev = [];
+  evs.forEach(onEvent);
   if(sess.kind === 'pass' && !sess.done && (G.phase === 'dead' || G.over)){
     sess.done = true;
     const pts = S.passScore(G), p = players.get(qbId);
     if(p){ p.stats.pts += pts; }
     sess.scores[qbId] = (sess.scores[qbId] || 0) + pts;
-    bannerShow(pts ? '+' + pts : 'NO SCORE', p ? p.name + ': ' + sess.scores[qbId] + ' points' : '', 2.2);
+    if(pts) bannerShow('+' + pts, p ? p.name + ': ' + sess.scores[qbId] + ' points' : '', 2.2);
     setTimeout(() => {
       if(!sess || sess.kind !== 'pass') return;
-      sess.left--;
-      if(sess.left <= 0){ sess.left = 5; sess.turn++; }
-      if(sess.turn >= sess.order.length) return finish();
+      sess.rep++; sess.turn = (sess.turn + 1) % sess.order.length;
       newPassThrow(); pickQb(); pushAll();
       const q = qb(); if(q) buzz(q, 200);
     }, 2400);
@@ -403,13 +423,24 @@ function onEvent(e){
   const qs = q ? q.stats : {};
   switch(e.type){
     case 'snap': SND.roar(0.15, 1.5); break;
-    case 'throw': SND.thud(false); if(q){ qs.att++; } SND.roar(0.3, 2.5); break;
-    case 'catch': SND.thud(true); SND.roar(0.55, 2.5); if(q){ qs.comp++; buzz(q, 60); } bannerShow('CAUGHT!', '', 1.0); break;
-    case 'td': SND.horn(); SND.roar(1, 5); if(q){ qs.td++; buzz(q, 600); }
+    case 'throw': {
+      SND.thud(false); if(q){ qs.att++; } SND.roar(0.3, 2.5);
+      const m = lastThrow && performance.now() - lastThrowT < 1500 ? lastThrow : null;
+      const deg = Math.round(e.h * 180 / Math.PI);
+      card = {who: q ? q.name : 'TV', mph: Math.round(e.speed * 2.045), loft: Math.round(e.loft * 180 / Math.PI),
+        kind: m && m.kind ? m.kind : e.loft > 0.6 ? 'LOB' : e.loft < 0.35 ? 'BULLET' : 'TOUCH',
+        aim: deg === 0 ? 'straight' : Math.abs(deg) + '° ' + (deg > 0 ? 'right' : 'left'),
+        spiral: m ? (m.spin > 0.6 ? 'tight' : m.spin > 0.2 ? 'some' : 'wobbly') : '-',
+        arm: m && m.arc ? m.arc + '°/s' + (m.el != null ? ', nose ' + m.el + '°' : '') : '', result: ''};
+      break;
+    }
+    case 'catch': if(card) card.result = 'CAUGHT · ' + e.air + ' yards in the air'; SND.thud(true); SND.roar(0.55, 2.5); if(q){ qs.comp++; buzz(q, 60); } bannerShow('CAUGHT!', '', 1.0); break;
+    case 'td': if(card) card.result = 'TOUCHDOWN!'; SND.horn(); SND.roar(1, 5); if(q){ qs.td++; buzz(q, 600); }
       bannerShow('TOUCHDOWN!', TEAMS[G.offense].nick, 3.5); break;
     case 'int': SND.groan(); if(q){ qs.int++; buzz(q, 400); } bannerShow('INTERCEPTED!', TEAMS[G.defense].nick + ' ball', 3); break;
     case 'sack': SND.thud(true); SND.groan(); if(q){ qs.sacks++; buzz(q, 300); } bannerShow('SACKED!', '', 1.8); break;
-    case 'incomplete': case 'drop': case 'breakup': SND.whistle(); SND.groan(); bannerShow(e.text, '', 1.4); break;
+    case 'incomplete': case 'drop': case 'breakup':
+      if(card) card.result = e.type === 'incomplete' && e.miss != null ? 'MISSED · ' + e.miss + ' yd ' + e.dir : e.text + (e.why ? ' · ' + e.why : ''); SND.whistle(); SND.groan(); bannerShow(e.text, '', 1.4); break;
     case 'tackle': SND.thud(true); SND.whistle(); break;
     case 'dead': if(e.why === 'oob'){ SND.whistle(); } if(q && e.gain > 0 && G.thrown) qs.yds += e.gain; break;
     case 'first': SND.charge(); bannerShow('FIRST DOWN!', '', 1.6); break;
@@ -515,18 +546,22 @@ function drawHud(){
   let tip = '';
   const P = S.PLAYS[G.call];
   if(v.phase === 'huddle') tip = `<b>${qn}</b> is the quarterback: pick a play on your phone`;
-  else if(v.phase === 'presnap') tip = G.call === 'fg' ? `<b>${qn}</b>: thumb down to snap, then swing and let go to kick` : `<b>${P.name}</b> vs ${S.COVERS[G.cover] ? S.COVERS[G.cover].name : ''} · <b>${qn}</b>: thumb on the screen to hike`;
-  else if(v.held) tip = `<b>THROW!</b> lift your thumb as you let go`;
-  else if(v.kicking) tip = `<b>KICK!</b> swing and let go`;
+  else if(v.phase === 'presnap') tip = G.call === 'fg' ? `<b>${qn}</b>: tap the phone to snap, then swing it to kick` : `<b>${P.name}</b> vs ${S.COVERS[G.cover] ? S.COVERS[G.cover].name : ''} · <b>${qn}</b>: tap the phone to hike`;
+  else if(v.held) tip = `<b>THROW IT!</b> the motion is the throw`;
+  else if(v.kicking) tip = `<b>KICK!</b> swing the phone through`;
   else if(v.carrying) tip = `<b>Tilt your phone</b> to run`;
-  else if(sess.kind === 'pass') tip = `<b>${qn}</b> · throw ${6 - sess.left} of 5 · ${sess.scores[qbId] || 0} points`;
+  else if(sess.kind === 'pass') tip = `<b>${qn}</b> · ${sess.scores[qbId] || 0} points`;
   else tip = esc(v.text || '');
-  if(sess.kind === 'pass' && (v.phase === 'huddle' || v.phase === 'presnap')) tip = `<b>${qn}</b> · throw ${6 - sess.left} of 5 · ${sess.scores[qbId] || 0} points · ` + (v.phase === 'huddle' ? 'pick a play' : 'thumb down to hike');
+  if(sess.kind === 'pass' && v.phase === 'presnap') tip = `PRACTICE · <b>${P.name}</b> · <b>${qn}</b>, get set… ${sess.scores[qbId] || 0} points`;
+  if(sess.kind === 'pass' && v.held) tip = `PRACTICE · <b>${qn}</b>: <b>THROW IT!</b> lead your receiver`;
+  const showCard = sess.kind === 'pass' && card;
+  $('card').classList.toggle('hide', !showCard);
+  if(showCard){ const h = cardHtml(card); if($('card').innerHTML !== h) $('card').innerHTML = h; }
   if($('tip').innerHTML !== tip) $('tip').innerHTML = tip;
   const aimFresh = performance.now() - live.t < 500;
   $('arm').classList.toggle('hide', !(aimFresh && (v.held || v.kicking || v.phase === 'presnap')));
   $('arm').firstElementChild.style.height = Math.round((live.power || 0) * 100) + '%';
-  $('pocket').classList.toggle('hide', !v.held);
+  $('pocket').classList.toggle('hide', !v.held || sess.kind === 'pass');
   $('pocket').firstElementChild.style.width = Math.round(v.pocket * 100) + '%';
   $('pocket').firstElementChild.style.background = v.pocket < 0.3 ? '#ff4b2b' : '#fff';
 }
@@ -541,7 +576,7 @@ function frame(){
 requestAnimationFrame(frame);
 
 /* ---------------- playing on the TV itself (keyboard and mouse) ---------------- */
-let keyboardMode = false, mouse = [0, 0], lastThrow = null;
+let keyboardMode = false, mouse = [0, 0], lastThrow = null, lastThrowT = 0;
 function mouseAim(){
   if(!G || !G.o) return null;
   const p = field.pick(mouse[0], mouse[1]);

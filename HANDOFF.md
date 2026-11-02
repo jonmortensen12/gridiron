@@ -8,12 +8,19 @@ and #11 (Two-Minute Drill); the Two-Minute Drill is the goal.
 ## Playing it
 
 Open the site on the TV (a laptop, a Fire Stick in Silk, a tablet).
-Phones scan the QR code, type a name, pick BYU or UTAH, JOIN, then point
-the top of the phone at the TV and LOCK. Any phone picks the mode and
-presses START (or Enter on the TV).
+Phones scan the QR code, type a name, pick BYU or UTAH, JOIN (the page
+reloads — see "shake to undo" below), then point the top of the phone at
+the TV and LOCK (which also asks iOS for the motion sensors and goes
+fullscreen). Any phone picks the mode and presses START (or Enter on the TV).
 
-- **Touchdown Pass** — warm-up. Five throws each from a random spot, pass
-  plays only. Points: 10 a catch + air yards, +30 a touchdown.
+- **Touchdown Pass** — the practice field. No defence, the plays call
+  themselves in turn (slants, outs, curls, post, Hail Mary, screen), the
+  ball snaps by itself, throwers take turns one rep each, and it never
+  ends (LOBBY to leave). Every throw gets a report card on the TV and the
+  phone: LOB / TOUCH / BULLET, mph, launch angle, aim, spiral, arm speed
+  and nose angle at release, and the result (caught + air yards, or
+  missed by N yards long/short/left/right, or why it was dropped). Points
+  still count: 10 a catch + air yards, +30 a touchdown.
 - **Two-Minute Drill** — the team with more phones has the ball (ties:
   BYU). The QB passes to the next phone on that team every play. Pick a
   scenario: *Saturday at Rice-Eccles* (down 4, 2:00, own 25, 2 TOs),
@@ -36,16 +43,34 @@ F fullscreen. In the lobby a computer QB plays drives behind the menu.
 
 ## The throw (`web/throw.js`, `throwcheck.mjs`)
 
-Hold the phone like the ball, **top of the phone = the nose**. Thumb on the
-screen = ball in hand (it also hikes). Throw — keep hold of the phone — and
-**lift the thumb** as you let go. What is read at the thumb-up:
+Hold the phone like the ball, **top of the phone = the nose**. **Tap** to
+hike. Then just throw — keep hold of the phone — and the motion is the
+throw. No button at release (2026-11-02, after the first version used a
+held thumb; Jon: "just detect a throw by the motion").
+
+**Seeing a throw.** The reader is *armed* only while the ball is in the
+QB's hand (or during a field-goal kick); the phone arms it from the TV's
+state. It watches the phone's spin turned into room axes, and the part of
+it about the horizontal axis to the thrower's LEFT of the TV direction:
+an overhand throw toward the TV spins the phone forward-and-down about
+exactly that axis. A throw starts when that forward spin passes 200°/s
+and ends 40 ms after its peak once it drops below 45% of the peak (or
+after 500 ms). It counts if the arm peaked above 300°/s or the hand above
+14 m/s². What does NOT start one: the wind-up (spins the other way — an
+earlier version watched the nose's pitch instead and was fooled when a
+big wind-up took the nose past straight up), waving the phone about
+(spins about the vertical), lowering it slowly, anything when not armed.
+700 ms cool-down between throws. Throws up to ~60° off the TV still show
+half their spin on that axis; much wider than that may not register.
+
+**What is read** (release = the peak of the forward spin):
 
 | | from | notes |
 |---|---|---|
-| aim | heading of the nose at release, minus the LOCK heading | the overhand arc swings the nose in the vertical plane of the throw, so the heading holds still through the release while the pitch does not |
-| loft | the nose's pitch at release | early release (nose up) lobs, late (nose level) is a bullet: 9°–46° |
-| power | peak turning rate across the arc (not the roll) and peak hand acceleration, last 350 ms | `(arc − 120)/1000` or `(acc − 4)/26`, whichever is bigger. Under 0.08 = **pump fake**, the ball stays in hand |
-| spin | roll rate about the nose | a spiral; less wobble in flight |
+| aim | heading of the nose through the fast part (samples at ≥ 60% of peak, weighted), minus the LOCK heading | the overhand arc swings the nose in the vertical plane of the throw, so the heading holds still there |
+| lob or bullet | the nose's pitch at the peak, and the arm speed | `loft = 6 + 0.55·(pitch + 10) + 14·(1 − power)`, 7°–50°. Under 20° BULLET, over 34° LOB, else TOUCH. High release + easy arm = lob; level release + fast arm = bullet |
+| power | peak arm spin (not the roll) and peak hand acceleration | `(arc − 120)/1000` or `(acc − 4)/26`, whichever is bigger |
+| spin | peak roll rate about the nose | a spiral; less wobble in flight |
 
 The pose is the gyro integrated per `devicemotion` event, pulled toward the
 browser's orientation only when nearly still — the browser's fused angles
@@ -54,32 +79,53 @@ Facts carried over from dry-fly-phone's `rodsense.js` (as GAMEDAY.md
 records them): `rotationRate.alpha` is about the phone's **x** axis, beta
 y, gamma z; the accelerometer's sign differs between iOS and Android, so
 only magnitudes are used. **dry-fly-phone itself could not be opened from
-this session** (it is not in the session's GitHub scope), so `throw.js` is
-a rewrite from those notes, not a copy. If the throw misbehaves on a real
-phone, compare with `rodsense.js` first.
+this session** (not in its GitHub scope, and code search does not reach
+it), so `throw.js` is a rewrite from those notes, not a copy.
 
-The **spike**: not holding, nose flung at the floor (nose below −49° and
+**None of this has been on a real phone yet.** The practice field's report
+card is the tool for tuning it: it shows arm speed and nose angle at
+release for every throw. Things to watch: a throw to the right should go
+right (if left, suspect the rotationRate axis mapping); throws that do not
+register (lower the 200°/s start or 300°/s count thresholds); lobs read as
+bullets or the reverse (the loft formula above).
+
+The **spike**: not armed, nose flung at the floor (nose below −49° and
 420°/s or 18 m/s²). Only acts in the huddle with the clock running. There
 is also a SPIKE button.
 
-**Swipe mode**: a phone with no motion events after 1.5 s, or anyone who
-taps SWIPE MODE (little kids). Thumb down hikes; flick up the screen to
-throw; direction from the swipe, power from its speed. A long drag up the
-screen (> 90 px) counts as a swipe even in motion mode.
+**Swipe mode**: LOCK with no sensors, or SWIPE MODE (little kids). Tap
+hikes; flick up the screen to throw; direction from the swipe, power from
+its speed. A long drag up the pad (> 90 px) counts as a swipe in motion
+mode too.
+
+**Shake to undo.** iOS offers "Undo Typing" when the phone is shaken and
+the page has typing it could undo — and every throw is a shake. JOIN
+therefore stores the name, team and room (localStorage + a sessionStorage
+`gridiron_go`) and reloads: the new page joins straight from storage,
+removes the text fields, and has no typing history. The fishing game
+solved this too, in dry-fly-phone, but that code was not reachable — if
+its fix differs, compare.
+
+**Orientation.** Android: fullscreen + `screen.orientation.lock('portrait')`,
+asked again on LOCK and on pad taps. iPhones cannot lock orientation from a
+web page, so when one rotates, `fitOrientation` turns the whole layout
+(`#app`) back the other way so it stays upright on the phone; touches go
+through `toLocal` for the swipe and the steering box. The throw maths reads
+the phone's own axes, so the screen's rotation never touches it. Rotation
+Lock in Control Centre still stops the flicker of the turn itself.
+**Untested on a real iPhone.**
 
 **After the catch** the QB phone steers the ball carrier: tilt left/right
 (`deviceorientation` gamma, ±30° = full), or hold a side of the box.
 
 `throwcheck` builds true poses through a throw (wind-up, overhand arc,
 spiral), turns them into the events a phone fires (body-frame rates, a
-lagging browser orientation) and checks the reading: aim within 4° from
-TV headings across the ±180° seam, loft from release timing, power, spin
-not moving the aim, a 3°/s gyro bias, pump fake, spike, LOCK with the
-phone held upright. **None of this has been on a real phone yet. Test the
-throw on an iPhone and an Android first thing.** Things to watch: the sign
-of the aim (a throw to the right should go right — if it goes left, the
-rotationRate axis mapping is the suspect), and whether `power` feels right
-(the numbers in `armPower` are a guess).
+lagging browser orientation) and checks, with no button: exactly one
+throw per throw, aim within 4° from TV headings across the ±180° seam,
+LOB / TOUCH / BULLET from the release, power, spin not moving the aim, a
+3°/s gyro bias, two throws in a row; and no throw from a wind-up past
+vertical, waving, lowering the phone, or while not armed; the spike; LOCK
+with the phone held upright.
 
 ## The football (`web/sim.js`, `simcheck.mjs`)
 
@@ -123,6 +169,11 @@ If the room finds it too easy, cut big plays first (YAC, deep-zone depth).
 
 ## The TV (`web/index.html`, `web/field.js`)
 
+Events: `sim.js` pushes to `g.ev` and never clears it; the TV takes them
+each tick (`G.ev = []`). Until 2026-11-02 `step()` cleared them, which
+silently lost every event a phone caused between steps (throws, calls,
+timeouts): no throw sound, passer stats stuck at 0/0.
+
 `index.html` hosts the room (PeerJS via `net.js`, from Night Watch), runs
 the sim in fixed 60 Hz steps that catch up with real time (a slow frame
 must not slow the game clock), and sends each phone its state 8× a second
@@ -142,16 +193,17 @@ one browser's storage).
 
 ## The phone (`web/play.html`)
 
-Night Watch's habits: never zoom, motion permission inside the JOIN tap
-(iOS), wake lock, fullscreen + portrait on Android. Screens: join → LOCK →
-lobby / huddle (play cards; SPIKE and TIMEOUT when the clock runs) /
-the football pad (laces; arm meter) / RUN (tilt) / defence coverage cards /
-watching / results. Sends `aim` 20× a second while holding so the TV can
-draw the arrow and the arm meter.
+Night Watch's habits: never zoom, motion permission inside a tap (iOS:
+the LOCK tap), wake lock, fullscreen + portrait on Android. Screens: join →
+(reload) → LOCK → lobby / huddle (play cards; SPIKE and TIMEOUT when the
+clock runs) / the football pad (laces; arm meter; the report card in
+practice) / RUN (tilt) / defence coverage cards / watching / results.
+Sends `aim` 20× a second while the ball is in hand so the TV can draw the
+arrow and the arm meter.
 
 Protocol, phone → TV: `hello {id,name,team}`, `team`, `cfg {mode,sc,assist}`,
 `start`, `again`, `lobby`, `call {play}`, `dcall {cover}`, `snap`,
-`throw {h,loft,power,spin}` (also the kick during a field goal), `steer {x}`,
+`throw {h,loft,power,spin,kind,arc,el}` (also the kick during a field goal), `steer {x}`,
 `spike`, `timeout`, `aim {h,p}`. TV → phone: `st` (everything), `buzz {ms}`.
 
 ## The rivalry (for flavour text)
@@ -183,7 +235,7 @@ Researched 2026-11-02.
 
 ## Not built yet
 
-- **Real-phone testing of the throw** (above). Most important.
+- **Real-phone testing of the throw** (above), on the practice field. Most important.
 - Field Goal Frenzy (#5) as its own mode — the kick exists inside the drill
   (`kick`), reading the same flick.
 - Hail Mary (#6), Pick-Six (#20), Kickoff Return (#22).
