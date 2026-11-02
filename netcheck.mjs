@@ -88,12 +88,19 @@ try {
   await qbp.click('[data-play=slants]');
   ok(await until(() => tv.evaluate(() => GRID.G.phase === 'presnap' && GRID.G.call === 'slants')), 'calling SLANTS lines them up');
   ok(await until(() => qbp.evaluate(() => !!document.getElementById('pad'))), 'the phone shows the football');
-  await sleep(600);
-  await tv.screenshot({path: SHOTS + '/tv-presnap.png'});
-  await qbp.screenshot({path: SHOTS + '/phone-pad.png'});
   // hike: a tap; wait for the routes; then a swipe up and to the right
   const box = await qbp.locator('#pad').boundingBox();
   const cx = box.x + box.width / 2, cy = box.y + box.height * 0.8;
+  // DOWN: a tap does nothing yet (a software-drawn test machine can be too slow to catch DOWN; then skip)
+  if(await tv.evaluate(() => GRID.G.phaseT < 1.5)){
+    ok(await qbp.evaluate(() => /DOWN/.test(document.getElementById('padSay').textContent)), 'the call puts them DOWN on the phone');
+    await qbp.mouse.click(cx, cy);
+    await sleep(100);
+    ok(await tv.evaluate(() => GRID.G.phase === 'presnap'), 'a tap during DOWN does not hike it');
+  } else console.log('         (DOWN already over by the time the phone was checked: skipped)');
+  ok(await until(() => qbp.evaluate(() => /SET/.test(document.getElementById('padSay').textContent)), 4000), 'two seconds later the phone says SET');
+  await tv.screenshot({path: SHOTS + '/tv-presnap.png'});
+  await qbp.screenshot({path: SHOTS + '/phone-pad.png'});
   await qbp.mouse.click(cx, cy);
   ok(await until(() => tv.evaluate(() => GRID.G.phase === 'live')), 'a tap hikes it');
   await sleep(1300);
@@ -139,16 +146,21 @@ try {
         }
       };
       window.__hold = async (e, n) => { for(let i = 0; i < n; i++){ __fire(e, {alpha: 0, beta: 0, gamma: 0}); await new Promise(r => setTimeout(r, 16)); } };
-      for(let i = 0; i < 20; i++) __fire([90, 0, 0], {alpha: 0, beta: 0, gamma: 0});
+      for(let i = 0; i < 20; i++) __fire([180, -60, 0], {alpha: 0, beta: 0, gamma: 0});   // starts cocked, as after the last play
     });
     await qbp.click('#btnMode');                     // now it has sensors: motion mode
     await until(() => qbp.evaluate(() => !!document.querySelector('[data-play=post]')));
     await qbp.click('[data-play=post]');
-    await until(() => qbp.evaluate(() => !!document.getElementById('pad') && sense.mode === 'hike'));
+    await until(() => qbp.evaluate(() => !!document.getElementById('pad')));
     await qbp.screenshot({path: SHOTS + '/phone-hike.png'});
     // ready: flat and low, the bottom (nose) pointing right, facing north; then up fast to the cocked
     // pose (nose forward and up, 60 degrees): the hike
-    await qbp.evaluate(async () => { await __hold([90, 0, 0], 20); await __move([90, 0, 0], [180, -60, 0], 12); await __hold([180, -60, 0], 10); });
+    // DOWN: get into the ready pose (flat and low, the bottom pointing right, facing north) - it is not a hike yet
+    await qbp.evaluate(async () => { await __hold([180, -60, 0], 5); await __move([180, -60, 0], [90, 0, 0], 12); await __hold([90, 0, 0], 10); });
+    ok(await tv.evaluate(() => GRID.G.phase === 'presnap'), 'moving into position during DOWN does not hike it');
+    await until(() => qbp.evaluate(() => sense.mode === 'hike'), 4000);
+    // SET: up to the cocked pose (the bottom forward and up 60 degrees): the hike
+    await qbp.evaluate(async () => { await __hold([90, 0, 0], 4); await __move([90, 0, 0], [180, -60, 0], 12); await __hold([180, -60, 0], 10); });
     ok(await until(() => tv.evaluate(() => GRID.G.phase === 'live')), 'bringing the phone up from the ready pose hikes it');
     const h0 = await qbp.evaluate(() => sense.h0 * 180 / Math.PI);
     ok(Math.abs(h0) < 8, `and forward is read from the ready pose (${h0.toFixed(1)} deg; facing 0)`);
@@ -171,6 +183,7 @@ try {
     await qbp.click('[data-play=run]');
     await until(() => qbp.evaluate(() => !!document.getElementById('pad')));
     const b3 = await qbp.locator('#pad').boundingBox();
+    await until(() => tv.evaluate(() => GRID.G.phase === 'presnap' && GRID.G.phaseT > 2.05), 5000);
     await qbp.mouse.click(b3.x + b3.width / 2, b3.y + b3.height / 2);
     await until(() => qbp.evaluate(() => !!document.getElementById('steer')), 4000);
     await qbp.screenshot({path: SHOTS + '/phone-run.png'});
@@ -226,6 +239,7 @@ try {
   ok(await tv.evaluate(() => GRID.G.players.length > 0 && GRID.G.players.every(p => p.side === 'o')), 'no defence on the practice field');
   ok(await until(() => qbp.evaluate(() => !!document.getElementById('pad'))), 'no play menu: the phone goes straight to the football');
   const b4 = await qbp.locator('#pad').boundingBox();
+  await until(() => tv.evaluate(() => GRID.G.phase === 'presnap' && GRID.G.phaseT > 2.05), 5000);
   await qbp.mouse.click(b4.x + b4.width / 2, b4.y + b4.height / 2);
   ok(await until(() => tv.evaluate(() => GRID.G.phase === 'live'), 6000), 'a tap hikes it (swipe mode)');
   await sleep(1200);

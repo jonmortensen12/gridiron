@@ -240,8 +240,13 @@ function callPlay(g, key){
   return true;
 }
 
+/* The cadence. The QB's call puts everyone DOWN; SET_AT seconds later the
+   line is SET, the quarterback is assumed to be in the snap position, and
+   only then can he hike it (his phone's snap motion, or a tap). */
+var SET_AT = 2.0;
+function cadence(g){ return g.phase !== 'presnap' ? null : g.phaseT < SET_AT ? 'down' : 'set'; }
 function snap(g){
-  if(g.phase !== 'presnap') return false;
+  if(g.phase !== 'presnap' || g.phaseT < SET_AT) return false;
   g.phase = 'live'; g.phaseT = 0; g.liveT = 0;
   if(!g.untimed && g.clock > 0) g.clockRunning = true;
   g.restartIn = 0;
@@ -813,7 +818,7 @@ function endDrive(g, why){
 /* What a phone or the TV needs to draw the drive. */
 function view(g){
   return {
-    phase: g.phase, clock: Math.max(0, g.clock), running: g.clockRunning && g.restartIn <= 0, untimed: g.untimed,
+    phase: g.phase, cadence: cadence(g), clock: Math.max(0, g.clock), running: g.clockRunning && g.restartIn <= 0, untimed: g.untimed,
     down: g.down, toGo: Math.max(1, Math.round(g.toGo)), goal: g.goalToGo, ball: Math.round(g.ball), tos: g.tos,
     call: g.call, cover: g.cover, points: g.points, need: g.need, over: g.over, result: g.result,
     text: g.lastText, pc: Math.ceil(g.playClock), canFg: canCall(g, 'fg'), canSpike: canCall(g, 'spike'),
@@ -910,7 +915,7 @@ function bot(g, dt, sk){
 }
 function gauss(g){ return (g.r() + g.r() + g.r() - 1.5) * 1.41; }
 
-var API = {throwTo: throwTo, pickTarget: pickTarget, bot: bot, newDrive: newDrive, step: step, callPlay: callPlay, snap: snap, throwBall: throwBall, steer: steer,
+var API = {SET_AT: SET_AT, cadence: cadence, throwTo: throwTo, pickTarget: pickTarget, bot: bot, newDrive: newDrive, step: step, callPlay: callPlay, snap: snap, throwBall: throwBall, steer: steer,
   kick: kick, timeout: timeout, view: view, canCall: canCall, passScore: passScore, leadFor: leadFor, targets: targets,
   PLAYS: PLAYS, PLAY_ORDER: PLAY_ORDER, COVERS: COVERS, ASSIST: ASSIST, SCENARIOS: SCENARIOS, HALF_W: HALF_W, G: G};
 if(typeof module !== 'undefined' && module.exports) module.exports = API;

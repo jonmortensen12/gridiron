@@ -377,7 +377,17 @@ function scoreLine(){
 /* ---------------- the game loop ---------------- */
 /* Fixed 60 Hz steps, catching up with real time: a slow TV (a Fire Stick
    drawing a big frame) must not slow the game clock down. */
-let tLast = performance.now(), prevPhase = null, acc = 0;
+let tLast = performance.now(), prevPhase = null, prevCad = null, acc = 0;
+/* The quarterback's cadence, out loud where the TV's browser can speak. */
+function say(text){
+  try {
+    if(!window.speechSynthesis || !SND.on()) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.15; u.pitch = 0.75; u.volume = 1;
+    speechSynthesis.speak(u);
+  } catch(e){}
+}
 setInterval(() => {
   const now = performance.now();
   acc = Math.min(0.5, acc + (now - tLast) / 1000); tLast = now;
@@ -401,6 +411,13 @@ function tick(dt){
   if(!qbId && !keyboardMode && sess.kind !== 'pass') S.bot(G, dt, {aim: 6, dist: 0.12});
   // practice snaps itself once everybody is set
   S.step(G, dt);
+  // the cadence: DOWN, two seconds to get in position, SET, then the QB hikes it
+  const cad = S.cadence(G);
+  if(cad !== prevCad){
+    prevCad = cad;
+    if(cad === 'down'){ say('Down!'); bannerShow('DOWN', '', 1.2); }
+    else if(cad === 'set'){ say('Set!'); bannerShow('SET', '', 0.9); const q = qb(); if(q) buzz(q, 60); }
+  }
   if(G.phase === 'huddle' && prevPhase === 'dead'){ pickQb(); pushAll(); const q = qb(); if(q) buzz(q, 120); }
   prevPhase = G.phase;
   const evs = G.ev; G.ev = [];
@@ -424,7 +441,7 @@ function onEvent(e){
   const q = qb();
   const qs = q ? q.stats : {};
   switch(e.type){
-    case 'snap': SND.roar(0.15, 1.5); break;
+    case 'snap': say('Hut!'); SND.roar(0.15, 1.5); break;
     case 'throw': {
       SND.thud(false); if(q){ qs.att++; } SND.roar(0.3, 2.5);
       const m = lastThrow && performance.now() - lastThrowT < 1500 ? lastThrow : null;
@@ -548,13 +565,13 @@ function drawHud(){
   let tip = '';
   const P = S.PLAYS[G.call];
   if(v.phase === 'huddle') tip = `<b>${qn}</b> is the quarterback: pick a play on your phone`;
-  else if(v.phase === 'presnap') tip = G.call === 'fg' ? `<b>${qn}</b>: bring the phone up to snap, then swing it to kick` : `<b>${P.name}</b> vs ${S.COVERS[G.cover] ? S.COVERS[G.cover].name : ''} · <b>${qn}</b>: phone low in front, bring it up to hike`;
+  else if(v.phase === 'presnap') tip = G.call === 'fg' ? `<b>${qn}</b>: bring the phone up to snap, then swing it to kick` : `<b>${P.name}</b> vs ${S.COVERS[G.cover] ? S.COVERS[G.cover].name : ''} · <b>${qn}</b>: ` + (v.cadence === 'down' ? 'DOWN · get in position' : '<b>SET</b> · hike it!');
   else if(v.held) tip = `<b>THROW IT</b> at a receiver · normal throw = bullet · easier = lob`;
   else if(v.kicking) tip = `<b>KICK!</b> swing the phone through`;
   else if(v.carrying) tip = `<b>Tilt your phone</b> to run`;
   else if(sess.kind === 'pass') tip = `<b>${qn}</b> · ${sess.scores[qbId] || 0} points`;
   else tip = esc(v.text || '');
-  if(sess.kind === 'pass' && v.phase === 'presnap') tip = `PRACTICE · <b>${P.name}</b> · <b>${qn}</b>: phone low in front and still, bottom to your throwing side, then bring it up to hike`;
+  if(sess.kind === 'pass' && v.phase === 'presnap') tip = `PRACTICE · <b>${P.name}</b> · <b>${qn}</b>: ` + (v.cadence === 'down' ? 'DOWN · phone low in front, bottom to your throwing side' : '<b>SET</b> · bring it up to hike!');
   if(sess.kind === 'pass' && v.held) tip = `PRACTICE · <b>${qn}</b>: <b>THROW IT</b> at a receiver · normal = bullet, easier = lob`;
   const showCard = sess.kind === 'pass' && card;
   $('card').classList.toggle('hide', !showCard);

@@ -2,8 +2,9 @@
 
    The NOSE of the ball is the BOTTOM of the phone. No buttons:
 
-   1. Ready: hold the phone out in front of you, low and steady, the bottom
-      (the nose) pointing to your throwing side, palm toward you.
+   1. DOWN (the game's call, two seconds): get the phone low in front of
+      you, the bottom (the nose) pointing to your throwing side, palm toward
+      you. SET: that is now the snap position.
    2. Hike: bring it up quickly to where you throw from (often out to the
       side). That is the snap. The ready pose gives the line you face
       along, and the cocked pose just after (the nose pointing forward-ish)
@@ -86,6 +87,12 @@ function forwardFrom(q, hand){
   var b = horiz(qrot(q, [0, 0, -1]));
   return b ? heading(b) : 0;
 }
+/* How much the phone tipped between two poses, ignoring turning about the
+   vertical: the angle between "up" as each pose sees it. */
+function tilt(a, b){
+  var ua = qrot([a[0], -a[1], -a[2], -a[3]], [0, 0, 1]), ub = qrot([b[0], -b[1], -b[2], -b[3]], [0, 0, 1]);
+  return Math.acos(Math.max(-1, Math.min(1, ua[0] * ub[0] + ua[1] * ub[1] + ua[2] * ub[2])));
+}
 function qangle(a, b){
   var d = Math.abs(a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3]);
   return 2 * Math.acos(Math.min(1, d));
@@ -104,7 +111,7 @@ function ThrowSense(opts){
   this.spikeCb = opts.onSpike || null;
   this.lastSpike = -1e9; this.lastEvent = -1e9;
   this.cur = null;          // a throw in progress
-  this.calmT = null; this.calmQ = null; this.left = null;   // the hike: calm, then a burst
+  this.baseQ = null; this.move = null;   // the hike: the snap position at SET, then a quick move
   this.settle = null;       // after the hike: which way the nose settles
   this.peaks = [];          // this player's recent arm speeds, for lob or bullet
   this.live = 0;            // arm speed right now, 0..1, for a meter
@@ -119,11 +126,11 @@ ThrowSense.prototype.orientation = function(alpha, beta, gamma){
    seen, so a motion from before cannot fire into the new phase. */
 ThrowSense.prototype.arm = function(mode){
   mode = mode || null;
-  if(mode !== this.mode){ this.mode = mode; this.cur = null; this.calmT = null; this.left = null; }
-};
-/* For the phone's screen: is the ready pose steady enough to hike from? */
-ThrowSense.prototype.readyToHike = function(t){
-  return this.mode === 'hike' && this.calmT != null && t - this.calmT >= 250;
+  if(mode !== this.mode){
+    this.mode = mode; this.cur = null; this.move = null;
+    // armed for the hike = the game called SET: wherever the phone is now is the snap position
+    this.baseQ = mode === 'hike' ? this.q : null;
+  }
 };
 ThrowSense.prototype.motion = function(rate, acc, accG, dt, t){
   this.gotMotion = true;
@@ -180,28 +187,31 @@ ThrowSense.prototype.motion = function(rate, acc, accG, dt, t){
   if((t - c.s[c.pi].t > 40 && fwd < c.pf * 0.45) || t - c.t0 > 500) this.finish(t);
 };
 
-/* The hike: the phone held steady (a quarter second under 70 deg/s and
-   3.5 m/s^2), then brought up quickly - turning over 220 deg/s or the hand
-   over 8 m/s^2 - and 45 degrees or more from where it was within 0.4 s of
-   leaving the steady pose. A lift counts as much as a twist. */
+/* The hike. The game calls DOWN (two seconds to get into position), then
+   SET, and arms this: the phone's pose at SET is the snap position (baseQ),
+   no waiting to hold still. The hike is the next quick move - turning over
+   220 deg/s or the hand over 8 m/s^2, a lift counts as much as a twist -
+   that ends 45 degrees or more from the snap position, tipped 30 degrees
+   or more (a hike brings the nose up; swinging the phone flat round the
+   room does not), within 0.4 s of starting. A slow drift is not a hike: after 0.4 s without one, wherever
+   the phone has got to becomes the snap position. Small settling while
+   steady moves the snap position along with it. */
 ThrowSense.prototype.hikeStep = function(t, wmag, a){
+  if(!this.baseQ) this.baseQ = this.q;
   var calm = wmag < 70 && a < 3.5;
-  if(calm){
-    if(this.calmT == null) this.calmT = t;
-    this.calmQ = this.q; this.left = null;
+  if(calm){ this.baseQ = this.q; this.move = null; return; }     // steady: this is the snap position
+  if(!this.move){ this.move = {t: t, q: this.baseQ, burst: 0}; }
+  var M = this.move;
+  if(t - M.t > 400){
+    // too slow to be a hike: start again from here
+    this.baseQ = this.q; this.move = calm ? null : {t: t, q: this.q, burst: 0};
     return;
   }
-  if(this.calmT != null){
-    this.left = t - this.calmT >= 250 ? {t: t, q: this.calmQ, burst: 0} : null;
-    this.calmT = null;
-  }
-  var L = this.left;
-  if(!L || t - this.lastEvent < 800) return;
-  if(t - L.t > 400){ this.left = null; return; }
-  L.burst = Math.max(L.burst, wmag / 220, a / 8);
-  if(L.burst >= 1 && qangle(this.q, L.q) > 45 * D2R){
-    this.lastEvent = t; this.left = null;
-    this.h0 = wrap(forwardFrom(L.q, this.hand) + (this.flip ? Math.PI : 0));
+  M.burst = Math.max(M.burst, wmag / 220, a / 8);
+  if(t - this.lastEvent < 800) return;
+  if(M.burst >= 1 && qangle(this.q, M.q) > 45 * D2R && tilt(this.q, M.q) > 30 * D2R){
+    this.lastEvent = t; this.move = null;
+    this.h0 = wrap(forwardFrom(M.q, this.hand) + (this.flip ? Math.PI : 0));
     this.settle = {from: t + 120, until: t + 600, x: 0, y: 0};
     if(this.onHike) this.onHike({h0: this.h0});
   }

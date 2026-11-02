@@ -169,10 +169,21 @@ for(const hand of ['right', 'left']){
   const h = [], s = new T.ThrowSense({onHike: x => h.push(x)});
   s.arm('hike');
   run(s, t => ({q: T.qmul(T.qaxis(0, 0, 1, Math.sin(t * 9) * 0.9), ready(0)), acc: 6}), 0, 1.5);
-  ok(h.length === 0, 'waving the phone about without ever holding still is not a hike');
+  ok(h.length === 0, 'swinging the phone flat round the room after SET is not a hike');
   run(s, () => ({q: ready(0), acc: 0}), 1.5, 2.2);
   run(s, t => ({q: slerp(ready(0), pose(0, -0.2), Math.min(1, (t - 2.2) / 0.1) * 0.4), acc: 8}), 2.2, 2.6);
   ok(h.length === 0, 'a quick jiggle from the ready pose (well under 45 degrees) is not a hike');
+}
+{
+  // DOWN: scrambling into position fast does nothing; SET (armed): then the hike counts
+  const h = [], s = new T.ThrowSense({hand: 'right', onHike: x => h.push(x)});
+  const R = ready(30 * D, 'right', 'toward'), was = pose(30 * D, 70 * D);
+  run(s, () => ({q: was, acc: 0}), 0, 0.4);
+  run(s, t => ({q: slerp(was, R, Math.min(1, (t - 0.4) / 0.25)), acc: 9}), 0.4, 1.0);   // DOWN: not armed
+  const before = h.length;
+  s.arm('hike');                                                                         // SET
+  run(s, t => ({q: slerp(R, was, Math.min(1, (t - 1.0) / 0.2)), acc: 9 * Math.sin(Math.PI * Math.min(1, (t - 1.0) / 0.2))}), 1.0, 1.8);
+  ok(before === 0 && h.length === 1 && near(h[0].h0 / D, 30, 8), `getting into position during DOWN is ignored; the hike after SET counts (forward ${h[0] ? deg(h[0].h0) : '-'}, facing 30)`);
 }
 {
   // a fast thrower: the throw starts 0.2 s after the hike, before the nose has had time to settle
@@ -237,7 +248,7 @@ console.log('not throws');
   const hk = [], h = new T.ThrowSense({onHike: x => hk.push(x)});
   h.arm('hike');
   run(h, t => ({q: T.qmul(T.qaxis(0, 0, 1, Math.sin(t * 12) * 0.8), ready(0)), acc: 6}), 0, 1.5);
-  ok(hk.length === 0, 'swinging the phone around in the ready pose (no lift) is not a hike');
+  ok(hk.length === 0, 'swinging the phone around in the ready pose (no tip) is not a hike');
 }
 {
   let spiked = 0;

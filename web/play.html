@@ -65,6 +65,8 @@ button:disabled { opacity:.35; }
 #pad .say { position:relative; font:900 30px/1.1 Impact, "Arial Black", sans-serif; letter-spacing:.03em; text-shadow:0 2px 0 #0008; padding:0 12px; }
 #padCard { position:relative; margin-top:14px; background:#0007; border-radius:12px; padding:8px 12px; font:600 14px/1.35 system-ui, sans-serif; text-align:left; }
 #padCard b { color:var(--gold); font:900 20px/1 Impact, sans-serif; letter-spacing:.03em; }
+#pad .cad { display:block; font:900 72px/1 Impact, "Arial Black", sans-serif; letter-spacing:.06em; color:#fff; }
+#pad .cad.set { color:var(--gold); }
 #pad .say small { display:block; font:600 15px/1.3 system-ui, sans-serif; margin-top:8px; color:#ffe9c8; }
 #meter { position:absolute; left:10px; bottom:10px; top:10px; width:10px; border-radius:999px; background:#0006; overflow:hidden; }
 #meter i { position:absolute; bottom:0; left:0; right:0; background:linear-gradient(0deg, #3cf, #ffd21f, #ff4b2b); height:0; }
@@ -404,7 +406,8 @@ function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&': '
    flick up the pad to throw (slow flick = lob, fast = bullet). */
 function armSense(){
   var v = st && st.v, qb = st && st.scr === 'game' && st.role === 'qb' && v;
-  sense.arm(!qb || swipe ? null : v.phase === 'presnap' ? 'hike' : (v.held || v.kicking) ? 'throw' : null);
+  // the hike is armed at SET, not before: SET says "you are in the snap position now"
+  sense.arm(!qb || swipe ? null : v.cadence === 'set' ? 'hike' : (v.held || v.kicking) ? 'throw' : null);
 }
 function onHikeGesture(){
   if(!st || st.role !== 'qb' || !st.v || st.v.phase !== 'presnap' || swipe) return;
@@ -415,7 +418,7 @@ function bindPad(pad){
   function down(x, y){
     if(!st || st.role !== 'qb') return;
     goFull();
-    if(st.v.phase === 'presnap'){ sense.hikeNow(performance.now()); send({t: 'snap'}); vibrate(30); }
+    if(st.v.cadence === 'set'){ sense.hikeNow(performance.now()); send({t: 'snap'}); vibrate(30); }
     touchStart = {x: x, y: y, t: performance.now()};
   }
   function up(x, y){
@@ -453,9 +456,10 @@ function paintPad(){
   var v = st.v, pad = $('pad'), side = myHand === 'left' ? 'LEFT' : 'RIGHT';
   pad.classList.toggle('held', !!(v.held || v.kicking));
   var t;
-  if(v.phase === 'presnap') t = swipe ? 'TAP TO HIKE<small>then swipe up toward a receiver: slow = lob, fast = bullet</small>'
-    : v.call === 'fg' ? 'BRING IT UP TO SNAP<small>then swing the phone through like a kicking leg</small>'
-    : (hikeReady ? 'NOW BRING IT UP!' : 'HOLD STILL…') + '<small>phone low in front of you, bottom pointing ' + side + ', palm toward you · then bring it up quickly to your throwing spot<br>(or tap here)</small>';
+  if(v.cadence === 'down') t = '<span class="cad">DOWN</span><small>' + (swipe ? 'get ready to tap' : 'get in position: phone low in front of you, bottom pointing ' + side + ', palm toward you') + '</small>';
+  else if(v.cadence === 'set') t = '<span class="cad set">SET</span><small>' + (swipe ? 'TAP TO HIKE, then swipe up toward a receiver: slow = lob, fast = bullet'
+    : v.call === 'fg' ? 'bring it up to snap, then swing the phone through like a kicking leg'
+    : 'HIKE IT: bring it up quickly to your throwing spot (or tap here)') + '</small>';
   else if(v.kicking) t = 'KICK!<small>swing the phone through</small>';
   else if(v.held) t = (swipe ? 'SWIPE UP!' : 'THROW IT!') + '<small>' + (swipe ? 'toward a receiver · slow = lob, fast = bullet' : 'at a receiver — whoever is that way gets it<br>normal throw = bullet · easier = lob') + '</small>';
   else if(st.practice) t = 'NEXT REP…';
@@ -480,12 +484,11 @@ function onSpikeGesture(){
 
 /* 20 times a second: where the phone points, the arm, the steering, and
    whether the ready pose is steady enough to hike from */
-var hikeReady = false;
+var lastCad = null;
 setInterval(function(){
   if(!st || st.role !== 'qb' || !st.v) return;
   var v = st.v;
-  var hr = sense.readyToHike(performance.now());
-  if(hr !== hikeReady){ hikeReady = hr; if(hr) vibrate(15); paintPad(); }
+  if(v.cadence !== lastCad){ lastCad = v.cadence; if(v.cadence === 'set') vibrate([40, 60, 40]); paintPad(); }
   armSense();
   if(v.held || v.kicking){
     var a = swipe ? (dragAim != null && touchStart ? {h: dragAim} : null) : sense.aim();

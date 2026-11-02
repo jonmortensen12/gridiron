@@ -18,11 +18,21 @@ const DT = 1 / 60;
 function run(g, secs, fn){ for(let i = 0; i < secs * 60 && !g.over; i++){ if(fn) fn(); S.step(g, DT); } }
 function untilDead(g){ for(let i = 0; i < 1200 && g.phase === 'live'; i++) S.step(g, DT); }
 
+// line up, wait out DOWN, hike at SET
+function hike(g){ run(g, S.SET_AT + 0.02); return S.snap(g); }
+
 console.log('rules');
 {
   const g = S.newDrive({seed: 5});
+  S.callPlay(g, 'slants');
+  ok(S.view(g).cadence === 'down' && !S.snap(g), 'the call puts them DOWN, and the ball cannot be hiked yet');
+  run(g, S.SET_AT + 0.02);
+  ok(S.view(g).cadence === 'set' && S.snap(g) && g.phase === 'live', `${S.SET_AT} seconds later they are SET, and the hike goes`);
+}
+{
+  const g = S.newDrive({seed: 5});
   ok(g.down === 1 && g.toGo === 10 && g.ball === 25 && g.clock === 120, 'a drive starts 1st & 10 at the 25 with 2:00');
-  S.callPlay(g, 'post'); S.snap(g);
+  S.callPlay(g, 'post'); hike(g);
   run(g, 0.5);
   ok(g.clockRunning && g.clock < 120, 'the clock runs from the snap');
   S.throwBall(g, {h: 1.5, loft: 0.3, power: 1, raw: true});   // straight out of bounds
@@ -33,7 +43,7 @@ console.log('rules');
 }
 {
   const g = S.newDrive({seed: 9});
-  S.callPlay(g, 'run'); S.snap(g);
+  S.callPlay(g, 'run'); hike(g);
   untilDead(g);
   ok(g.phase === 'dead' && (g.lastWhy === 'tackle' || g.lastWhy === 'oob'), `a run ends in a tackle (${g.lastWhy}, ${g.lastGain} yds)`);
   run(g, 3);
@@ -44,7 +54,7 @@ console.log('rules');
 }
 {
   const g = S.newDrive({seed: 11});
-  S.callPlay(g, 'run'); S.snap(g); untilDead(g); run(g, 3);
+  S.callPlay(g, 'run'); hike(g); untilDead(g); run(g, 3);
   const d0 = g.down;
   if(g.clockRunning){
     ok(S.callPlay(g, 'spike') && !g.clockRunning && g.down === d0 + 1, 'a spike stops the clock and costs a down');
@@ -53,7 +63,7 @@ console.log('rules');
 {
   // first down stops the clock briefly (college, the last two minutes)
   const g = S.newDrive({seed: 2, ball: 50});
-  S.callPlay(g, 'slants'); S.snap(g);
+  S.callPlay(g, 'slants'); hike(g);
   g.toGo = 1;
   untilDead(g);
   if(g.lastGain >= 1 && g.lastWhy === 'tackle'){
@@ -67,7 +77,7 @@ console.log('rules');
   let tds = 0;
   for(let s = 1; s <= 30; s++){
     const g = S.newDrive({seed: s, ball: 92});
-    S.callPlay(g, 'post'); S.snap(g); run(g, 1.0);
+    S.callPlay(g, 'post'); hike(g); run(g, 1.0);
     const L = S.targets(g).map(rc => S.leadFor(g, rc, 20, 0.4)).filter(l => l && l.y > 100)[0];
     if(L) S.throwBall(g, {at: [L.x, L.y]});
     untilDead(g); if(g.over && g.result.why === 'td') tds++;
@@ -77,20 +87,20 @@ console.log('rules');
 {
   // field goals: a good kick from close is good, a weak one from far is short
   const g = S.newDrive({seed: 3, ball: 80});
-  S.callPlay(g, 'fg'); S.snap(g); run(g, 0.5); S.kick(g, {power: 0.8, h: 0.0}); run(g, 4);
+  S.callPlay(g, 'fg'); hike(g); run(g, 0.5); S.kick(g, {power: 0.8, h: 0.0}); run(g, 4);
   ok(g.over && g.result.why === 'fg' && g.points === 3, `a straight 37-yarder is good (${g.result && g.result.why})`);
   const g2 = S.newDrive({seed: 3, ball: 40});
   ok(!S.canCall(g2, 'fg'), 'no field goal from your own 40');
   const g3 = S.newDrive({seed: 3, ball: 62});
-  S.callPlay(g3, 'fg'); S.snap(g3); run(g3, 0.5); S.kick(g3, {power: 0.1, h: 0}); run(g3, 4);
+  S.callPlay(g3, 'fg'); hike(g3); run(g3, 0.5); S.kick(g3, {power: 0.1, h: 0}); run(g3, 4);
   ok(g3.over && g3.result.why === 'fgmiss', 'a 55-yarder with no leg is short');
   const g4 = S.newDrive({seed: 3, ball: 80});
-  S.callPlay(g4, 'fg'); S.snap(g4); run(g4, 0.5); S.kick(g4, {power: 0.9, h: 0.35}); run(g4, 4);
+  S.callPlay(g4, 'fg'); hike(g4); run(g4, 0.5); S.kick(g4, {power: 0.9, h: 0.35}); run(g4, 4);
   ok(g4.over && g4.result.why === 'fgmiss', 'a kick 20 degrees off line is wide');
 }
 {
   const g = S.newDrive({seed: 4, clock: 3});
-  S.callPlay(g, 'post'); S.snap(g); run(g, 5);
+  S.callPlay(g, 'post'); hike(g); run(g, 5);
   ok(g.over && g.result.why === 'clock' || g.over, `time runs out (${g.result && g.result.why})`);
   const g2 = S.newDrive({seed: 4, scenario: 'george'});
   ok(g2.untimed && g2.ball === 75, 'overtime has no clock, ball on the 25');
@@ -98,7 +108,7 @@ console.log('rules');
 {
   // the throw goes where it is aimed: 0 = straight downfield
   const g = S.newDrive({seed: 1});
-  S.callPlay(g, 'post'); S.snap(g); run(g, 0.3);
+  S.callPlay(g, 'post'); hike(g); run(g, 0.3);
   S.throwBall(g, {h: 0.3, loft: 0.4, power: 0.5, raw: true});
   ok(g.ballObj.vx > 0 && g.ballObj.vy > 0, 'a throw aimed right goes right and downfield');
   const L = g.landing, d = Math.hypot(L.x - g.o.QB.x, L.y - g.o.QB.y);
@@ -108,7 +118,7 @@ console.log('rules');
 console.log('\nthrowing: direction picks the man, the game leads him');
 {
   const g = S.newDrive({seed: 21, ball: 40});
-  S.callPlay(g, 'post'); S.snap(g); run(g, 1.2);     // the back stays in to block on POST
+  S.callPlay(g, 'post'); hike(g); run(g, 1.2);     // the back stays in to block on POST
   const qb = g.o.QB, bear = k => Math.atan2(g.o[k].x - qb.x, g.o[k].y - qb.y);
   ok(S.pickTarget(g, -1.2).key === 'X', `a throw well left goes to the left wideout (${S.pickTarget(g, -1.2).key})`);
   ok(S.pickTarget(g, 1.2).key === 'Z', `a throw well right goes to the right wideout (${S.pickTarget(g, 1.2).key})`);
@@ -120,7 +130,7 @@ console.log('\nthrowing: direction picks the man, the game leads him');
   for(let sd = 1; sd <= 40; sd++){
     for(const kind of ['LOB', 'BULLET']){
       const g = S.newDrive({seed: sd, practice: true, clock: 0, ot: true, ball: 30});
-      S.callPlay(g, ['slants', 'outs', 'post', 'curls'][sd % 4]); S.snap(g); run(g, 1.3);
+      S.callPlay(g, ['slants', 'outs', 'post', 'curls'][sd % 4]); hike(g); run(g, 1.3);
       const key = ['X', 'Z', 'Y', 'T'][sd % 4];
       if(!g.o[key].route) continue;
       S.throwTo(g, {to: key, kind}); n++;
