@@ -7,6 +7,7 @@
    Light enough for a Fire TV Stick: no post-processing, blob shadows, one
    canvas texture for the whole field. */
 import * as THREE from './lib/three.module.min.js';
+import {createPlayers} from './players.js';
 
 export const TEAMS = {
   byu:  {name: 'BYU', nick: 'COUGARS', col: '#002E5D', alt: '#ffffff', trim: '#0062B8', helmet: '#ffffff'},
@@ -79,12 +80,14 @@ function crowdTexture(main, other){
     g.fillStyle = '#2a2c31'; g.fillRect(0, 0, W, H);
     for(let row = 0; row < 64; row++){
       g.fillStyle = '#1d1f23'; g.fillRect(0, row * 8 + 6, W, 2);
+      if(row % 16 === 15){ g.fillStyle = '#5b5e66'; g.fillRect(0, row * 8 + 2, W, 6); continue; }   // a walkway
       for(let i = 0; i < 128; i++){
         const r = Math.random();
         if(r > 0.93) continue;
         g.fillStyle = r < 0.6 ? main : r < 0.78 ? other : r < 0.86 ? '#d9d2c4' : '#4a4038';
         g.fillRect(i * 4 + Math.random() * 0.8, row * 8 + Math.random() * 1.5, 3, 5);
       }
+      for(let x = 0; x < W; x += 128){ g.fillStyle = '#6a6d75'; g.fillRect(x, row * 8, 6, 8); }   // aisles
     }
   });
 }
@@ -108,6 +111,8 @@ function mountainTexture(){
   });
 }
 
+function S_PASS(g){ return g.call && !/^(run|fg|spike)$/.test(g.call); }
+
 export function createField(canvas, opts = {}){
   const low = !!opts.low;
   const renderer = new THREE.WebGLRenderer({canvas, antialias: !low, powerPreference: 'high-performance'});
@@ -115,6 +120,8 @@ export function createField(canvas, opts = {}){
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
+  // sun shadows for the players (not on a slow box: ?q=low keeps the soft blobs)
+  if(!low){ renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; }
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(48, 16 / 9, 0.5, 900);
 
@@ -129,13 +136,27 @@ export function createField(canvas, opts = {}){
   const sun = new THREE.DirectionalLight(0xfff1d8, 2.2);
   sun.position.set(-80, 60, -40);
   scene.add(sun);
+  if(!low){
+    // the shadow camera follows the play: 60 yards square round the ball
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(2048, 2048);
+    const sc = sun.shadow.camera; sc.left = -32; sc.right = 32; sc.top = 32; sc.bottom = -32; sc.near = 10; sc.far = 260;
+    sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
+    scene.add(sun.target);
+  }
 
   // field
   let off = TEAMS.byu, def = TEAMS.utah;
   const fieldMat = new THREE.MeshLambertMaterial({map: fieldTexture(off, def)});
   const field = new THREE.Mesh(new THREE.PlaneGeometry(53.3, 120), fieldMat);
   field.rotation.x = -Math.PI / 2; field.position.set(0, 0, -50);
+  field.receiveShadow = true;
   scene.add(field);
+  // pylons at the corners of both end zones
+  const pylonGeo = new THREE.BoxGeometry(0.11, 0.5, 0.11), pylonMat = new THREE.MeshLambertMaterial({color: 0xff6a13, emissive: 0x331100});
+  [0, 10, 100, 110].forEach(y => [-26.65, 26.65].forEach(x => {
+    const pl = new THREE.Mesh(pylonGeo, pylonMat); pl.position.set(x, 0.25, -y); pl.castShadow = !low; scene.add(pl);
+  }));
   const apron = new THREE.Mesh(new THREE.PlaneGeometry(110, 170), new THREE.MeshLambertMaterial({color: 0x356e27}));
   apron.rotation.x = -Math.PI / 2; apron.position.set(0, -0.02, -50);
   scene.add(apron);
@@ -182,41 +203,27 @@ export function createField(canvas, opts = {}){
   }
   const losLine = band(0x2f7bff, 0.85), fdLine = band(0xffe100, 0.9);
 
-  // players
-  const bodyGeo = new THREE.CapsuleGeometry(0.42, 0.9, 4, 10);
-  const legGeo = new THREE.CylinderGeometry(0.17, 0.15, 0.95, 8);
-  const headGeo = new THREE.SphereGeometry(0.34, 14, 10);
-  const maskGeo = new THREE.TorusGeometry(0.22, 0.04, 6, 12, Math.PI);
+  // players: real kits, numbers and names (rosters.js), built in players.js
+  const PL = createPlayers(scene, {low});
   const shadowTex = canvasTex(64, 64, (g, W) => {
     const gr = g.createRadialGradient(32, 32, 0, 32, 32, 32);
     gr.addColorStop(0, 'rgba(0,0,0,0.55)'); gr.addColorStop(1, 'rgba(0,0,0,0)');
     g.fillStyle = gr; g.fillRect(0, 0, W, W);
   });
   const shadowMat = new THREE.MeshBasicMaterial({map: shadowTex, transparent: true, depthWrite: false});
-  const shadowGeo = new THREE.PlaneGeometry(1.6, 1.6);
-  const figs = [];
-  const mats = {};
-  function mat(c){ return mats[c] || (mats[c] = new THREE.MeshLambertMaterial({color: c})); }
-  function fig(){
-    const g = new THREE.Group();
-    const body = new THREE.Mesh(bodyGeo, mat('#ffffff')); body.position.y = 1.45;
-    const l1 = new THREE.Mesh(legGeo, mat('#ffffff')), l2 = new THREE.Mesh(legGeo, mat('#ffffff'));
-    l1.position.set(-0.2, 0.48, 0); l2.position.set(0.2, 0.48, 0);
-    const head = new THREE.Mesh(headGeo, mat('#ffffff')); head.position.y = 2.3;
-    const mask = new THREE.Mesh(maskGeo, mat('#cccccc')); mask.position.set(0, 2.22, -0.26); mask.rotation.x = Math.PI / 2 + 0.3;
-    const sh = new THREE.Mesh(shadowGeo, shadowMat); sh.rotation.x = -Math.PI / 2; sh.position.y = 0.02;
-    g.add(body, l1, l2, head, mask, sh);
-    g.userData = {body, l1, l2, head, mask, run: Math.random() * 6};
-    scene.add(g);
-    return g;
+  const figs = new Map();          // team + slot -> figure (built the first time it is needed)
+  function figFor(team, slot, i){
+    const key = team + ':' + slot;
+    let f = figs.get(key);
+    if(!f){
+      const R = window.GRoster, who = R && R.who(team, slot);
+      f = PL.build(team, who, i * 7 + (team === 'utah' ? 3 : 0));
+      if(who){ f.userData.tag = PL.tag(team, who); f.userData.tag.position.y = 2.75; f.userData.tag.visible = false; f.add(f.userData.tag); }
+      figs.set(key, f);
+    }
+    return f;
   }
-  function paint(f, team, isOff){
-    const u = f.userData;
-    u.body.material = mat(isOff ? team.col : team.alt);          // home dark, visitors white? offense dark for contrast
-    u.l1.material = u.l2.material = mat(isOff ? '#e8e8e8' : team.col);
-    u.head.material = mat(team.helmet);
-    u.mask.material = mat(team === TEAMS.byu ? '#9aa4b0' : '#ffffff');
-  }
+  const STANCE = {OL: 1, DL: 1, QB: 0.2, WR: 0.45, TE: 0.5, RB: 0.5, LB: 0.55, CB: 0.4, S: 0.3};
 
   // the ball
   const ball = new THREE.Group();
@@ -277,7 +284,9 @@ export function createField(canvas, opts = {}){
   const camPos = new THREE.Vector3(0, 12, 20), camLook = new THREE.Vector3(0, 0, -20);
   const wantPos = new THREE.Vector3(), wantLook = new THREE.Vector3();
 
+  let offKey = 'byu', defKey = 'utah';
   function setTeams(o, d){
+    offKey = o === 'utah' ? 'utah' : 'byu'; defKey = d === 'byu' ? 'byu' : 'utah';
     off = TEAMS[o] || TEAMS.byu; def = TEAMS[d] || TEAMS.utah;
     fieldMat.map.dispose(); fieldMat.map = fieldTexture(off, def); fieldMat.needsUpdate = true;
     // whoever is attacking, the end you drive at should be the home end: the field is turned, not repainted
@@ -301,24 +310,55 @@ export function createField(canvas, opts = {}){
     fdLine.position.z = -fd; fdLine.visible = g.phase !== 'over' && fd < 100 && g.call !== 'fg';
     // players
     const ps = g.phase === 'huddle' && !g.o ? [] : g.players;
-    while(figs.length < ps.length) figs.push(fig());
-    figs.forEach((f, i) => {
-      const p = ps[i];
-      f.visible = !!p && g.phase !== 'huddle';
-      if(!f.visible) return;
-      const team = p.side === 'o' ? off : def;
-      if(f.userData.team !== team || f.userData.side !== p.side){ paint(f, team, p.side === 'o'); f.userData.team = team; f.userData.side = p.side; }
+    const used = new Set();
+    const air = g.ballObj && g.ballObj.state === 'air';
+    ps.forEach((p, i) => {
+      if(g.phase === 'huddle') return;
+      const team = p.side === 'o' ? offKey : defKey;
+      const f = figFor(team, p.key || (p.pos + i), i);
+      used.add(f); f.visible = true;
       f.position.set(p.x, 0, -p.y);
       const sp = Math.hypot(p.vx, p.vy);
-      if(sp > 0.4) f.rotation.y = Math.atan2(-p.vx, p.vy) + Math.PI;
-      else f.rotation.y = p.side === 'o' ? Math.PI : 0;
-      f.userData.run += dt * sp * 1.6;
-      const sw = Math.sin(f.userData.run) * Math.min(1, sp / 4) * 0.6;
-      f.userData.l1.rotation.x = sw; f.userData.l2.rotation.x = -sw;
-      f.userData.body.rotation.x = Math.min(0.35, sp * 0.04);
-      const big = p === g.carrier || (g.thrown && g.throwInfo && g.throwInfo.target === p.key && g.ballObj.state === 'air');
-      f.scale.setScalar(big ? 1.12 : 1);
+      const u = f.userData;
+      // which way he faces: where he runs; at rest, at the other team; a
+      // defender dropping into coverage backpedals, still facing the ball
+      let face = p.side === 'o' ? 0 : Math.PI;
+      if(sp > 0.6){
+        face = Math.atan2(-p.vx, p.vy);
+        if(p.side === 'd' && p.vy > 0 && !g.thrown && !(g.carrier && g.carrier !== (g.o && g.o.QB)) && sp < 7.5) face = Math.PI;
+      }
+      if(p.side === 'o' && p.pos === 'QB' && g.phase === 'live' && g.carrier === p) face = live.aim != null && !g.thrown ? live.aim * 0.6 : face;
+      let d = face - u.facing; while(d > Math.PI) d -= 2 * Math.PI; while(d < -Math.PI) d += 2 * Math.PI;
+      u.facing += d * Math.min(1, dt * 10);
+      f.rotation.y = u.facing;
+      // what he is doing
+      const pre = g.phase === 'presnap';
+      const a = {speed: sp};
+      if(pre) a.stance = STANCE[p.pos] || 0.3;
+      else if((p.pos === 'OL' || p.pos === 'DL') && g.phase === 'live' && g.liveT < 3.5) a.stance = 0.45;
+      a.lineman = pre && (p.pos === 'OL' || p.pos === 'DL');
+      if(p.pos === 'QB' && g.phase === 'live' && g.call !== 'fg' && S_PASS(g)){
+        if(g.carrier === p && !g.thrown) a.throwArm = Math.min(1, g.liveT / 0.4);
+        else if(g.thrown && g.airT != null && g.airT < 0.45) a.throwArm = -Math.min(1, g.airT / 0.3);
+      }
+      if(air && g.landing && p.pos !== 'QB' && p.pos !== 'OL' && p.pos !== 'DL'){
+        const dl = Math.hypot(p.x - g.landing.x, p.y - g.landing.y), db = Math.hypot(g.ballObj.x - p.x, g.ballObj.y - p.y);
+        a.reach = dl < 3 && db < 9;
+      }
+      a.carry = p === g.carrier && p.pos !== 'QB';
+      PL.pose(f, a, dt);
+      // a touch bigger with the ball, or the ball coming to him, so the eye finds him
+      const big = p === g.carrier || (g.thrown && g.throwInfo && g.throwInfo.target === p.key && air);
+      // drawn 15% big: at broadcast distance true-size players are specks (Night Watch draws its ships big for the same reason)
+      f.scale.setScalar(big ? 1.27 : 1.15);
+      // name tags: the skill players before the snap; then whoever matters
+      if(u.tag){
+        const skill = p.side === 'o' && /^(X|Z|Y|T|R|QB)$/.test(p.key);
+        u.tag.visible = (pre && skill) || (g.phase === 'live' && (p === g.carrier && p.pos !== 'QB' || (live.target && p.key === live.target && p.side === 'o' && !g.thrown) ||
+          (air && g.throwInfo && g.throwInfo.target === p.key && p.side === 'o')));
+      }
     });
+    figs.forEach(f => { if(!used.has(f)) f.visible = false; });
     // ball
     const b = g.ballObj;
     ball.visible = !!b && g.phase !== 'huddle';
@@ -374,6 +414,7 @@ export function createField(canvas, opts = {}){
     }
     const k = Math.min(1, dt * 2.2);
     camPos.lerp(wantPos, k); camLook.lerp(wantLook, k);
+    if(!low){ sun.target.position.set(camLook.x, 0, camLook.z + 12); sun.position.set(camLook.x - 80, 60, camLook.z + 12 - 40); }
     camera.position.copy(camPos); camera.lookAt(camLook);
     renderer.render(scene, camera);
   }

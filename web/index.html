@@ -22,7 +22,7 @@ canvas#view { position:fixed; inset:0; width:100%; height:100%; display:block; }
 .tm .poss { color:var(--gold); font-size:.8em; }
 #clk { background:#111b2b; color:#fff; font-variant-numeric:tabular-nums; min-width:4.2em; justify-content:center; font-size:1.25em; }
 #clk.run { color:#fff; } #clk.stop { color:var(--gold); }
-#dd { background:#e9edf3; color:#0b1424; min-width:9em; justify-content:center; }
+#dd { background:#e9edf3; color:#0b1424; min-width:9em; justify-content:center; white-space:nowrap; }
 #pc { background:#111b2b; color:var(--dim); font-size:.75em; }
 /* the call and what to do */
 #tip { position:fixed; left:50%; top:3vh; transform:translateX(-50%); background:var(--panel); padding:.5em 1.1em; border-radius:999px; font-size:1.6vw; font-weight:700; white-space:nowrap; box-shadow:0 4px 20px #0006; }
@@ -115,6 +115,7 @@ table.st td:first-child, table.st th:first-child { text-align:left; }
 <div id="err" class="hide"></div>
 
 <script src="sim.js"></script>
+<script src="rosters.js"></script>
 <script src="net.js"></script>
 <script src="qr.js"></script>
 <script src="sound.js"></script>
@@ -268,6 +269,12 @@ function newPassThrow(){
 }
 let card = null;      // the last throw's report
 const RECEIVERS = {X: 'left wideout', Z: 'right wideout', Y: 'slot', T: 'tight end', R: 'running back'};
+/* "#3 Kyler Kasper (left wideout)" - who a slot is on the team that has it */
+function named(team, key, full){
+  const w = window.GRoster && GRoster.who(team, key);
+  if(!w) return RECEIVERS[key] || '';
+  return '#' + w.num + ' ' + (full ? w.first + ' ' : '') + w.last;
+}
 function cardHtml(c){
   if(!c) return '';
   const rows = [['To', c.to], ['Thrown', c.dir], ['Ball', c.mph + ' mph, ' + c.loft + '° up'], ['Spiral', c.spiral]];
@@ -447,16 +454,16 @@ function onEvent(e){
       const m = lastThrow && performance.now() - lastThrowT < 1500 ? lastThrow : null;
       const deg = m ? Math.round(m.h * 180 / Math.PI) : null;
       card = {who: q ? q.name : 'TV', mph: Math.round(e.speed * 2.045), loft: Math.round(e.loft * 180 / Math.PI),
-        kind: e.kind || (m && m.kind) || 'PASS', to: RECEIVERS[e.target] || '-',
+        kind: e.kind || (m && m.kind) || 'PASS', to: e.target ? named(G.offense, e.target, true) + (RECEIVERS[e.target] ? ' (' + RECEIVERS[e.target] + ')' : '') : '-',
         dir: deg == null ? '-' : deg === 0 ? 'straight ahead' : Math.abs(deg) + '° ' + (deg > 0 ? 'right' : 'left'),
         spiral: m ? (m.spin > 0.6 ? 'tight' : m.spin > 0.2 ? 'some' : 'wobbly') : '-',
         arm: m && m.arc ? m.arc + '°/s' + (m.usual ? ' (your usual ' + m.usual + ')' : '') + ', nose ' + m.el + '° at release' : '', result: ''};
       break;
     }
-    case 'catch': if(card) card.result = 'CAUGHT · ' + e.air + ' yards in the air'; SND.thud(true); SND.roar(0.55, 2.5); if(q){ qs.comp++; buzz(q, 60); } bannerShow('CAUGHT!', '', 1.0); break;
+    case 'catch': if(card) card.result = 'CAUGHT · ' + e.air + ' yards in the air'; SND.thud(true); SND.roar(0.55, 2.5); if(q){ qs.comp++; buzz(q, 60); } bannerShow('CAUGHT!', named(G.offense, e.by), 1.2); break;
     case 'td': if(card) card.result = 'TOUCHDOWN!'; SND.horn(); SND.roar(1, 5); if(q){ qs.td++; buzz(q, 600); }
-      bannerShow('TOUCHDOWN!', TEAMS[G.offense].nick, 3.5); break;
-    case 'int': SND.groan(); if(q){ qs.int++; buzz(q, 400); } bannerShow('INTERCEPTED!', TEAMS[G.defense].nick + ' ball', 3); break;
+      bannerShow('TOUCHDOWN!', (e.by ? named(G.offense, e.by, true) + ' · ' : '') + TEAMS[G.offense].nick, 3.5); break;
+    case 'int': SND.groan(); if(q){ qs.int++; buzz(q, 400); } bannerShow('INTERCEPTED!', (e.by ? named(G.defense, e.by, true) + ' · ' : '') + TEAMS[G.defense].nick + ' ball', 3); break;
     case 'sack': SND.thud(true); SND.groan(); if(q){ qs.sacks++; buzz(q, 300); } bannerShow('SACKED!', '', 1.8); break;
     case 'incomplete': case 'drop': case 'breakup':
       if(card) card.result = e.type === 'incomplete' && e.miss != null ? 'MISSED · ' + e.miss + ' yd ' + e.dir : e.text + (e.why ? ' · ' + e.why : ''); SND.whistle(); SND.groan(); bannerShow(e.text, '', 1.4); break;

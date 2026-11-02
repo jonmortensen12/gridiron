@@ -59,15 +59,25 @@ twist AND the nose rising 25°, and a real hike is mostly a lift; and with
 the nose pointing well down in the ready pose, forward was taken from the
 back of the phone, which in the palm-in grip faces the body. Fixed as below.
 
-1. **Ready**: phone held low and still in front, bottom (nose) pointing to
-   the throwing side, palm toward you. Other grips work too (screen up,
+0. **The cadence** (second real-phone test: "it was so fast I had to be in
+   snap position before calling the play"): calling a play puts everyone
+   **DOWN** — two seconds (`SET_AT` in `sim.js`) to get the phone into the
+   ready pose; nothing the phone does counts yet, and the ball cannot be
+   snapped. Then **SET**: the phone buzzes, the TV says "Set!", and the
+   phone takes its pose at that moment as the snap position. The next
+   quick move is the hike ("Hut!"). The TV speaks the cadence with the
+   browser's speech synthesis where it has one (and the sound is on).
+1. **Ready** (during DOWN): phone held low in front, bottom (nose) pointing
+   to the throwing side, palm toward you. Other grips work too (screen up,
    toward you, away, nose pointing down, palm out): `throwcheck` plays all
    of them for both hands.
-2. **Hike**: steady for a quarter second (under 70°/s and 3.5 m/s²), then
-   a burst — turning over 220°/s or the hand over 8 m/s², a lift counts as
-   much as a twist — that ends 45° or more from the steady pose within
-   0.4 s. The phone shows HOLD STILL… then NOW BRING IT UP! (with a tick
-   of vibration) once it is steady enough. A tap on the pad hikes too.
+2. **Hike** (after SET): a burst — turning over 220°/s or the hand over
+   8 m/s², a lift counts as much as a twist — that ends 45° or more from the
+   snap position AND tipped 30° or more (the angle between "up" as the two
+   poses see it, so swinging the phone flat round the room is never a hike),
+   within 0.4 s of starting. Any steady moment (under 70°/s and 3.5 m/s²)
+   moves the snap position to where the phone is; a slow drift restarts
+   after 0.4 s. A tap on the pad hikes too (only at SET).
    - **The forward line** comes from the steady ready pose: a quarter turn
      from the nose (or the phone's face, if the nose points steeply down).
    - **Which way along it** comes from just after the hike (120–600 ms;
@@ -219,12 +229,38 @@ the sim in fixed 60 Hz steps that catch up with real time (a slow frame
 must not slow the game clock), and sends each phone its state 8× a second
 (plus right after anything it sent). `field.js` draws it in three.js: a
 10 a.m. sky, the field as one canvas texture (end zones painted with the
-team names, HOLY WAR at midfield), red stands with a blue visitor end,
-capsule players in team colours, the ball with a trail and shadow, route
+team names, HOLY WAR at midfield, pylons), red stands with aisles and
+walkways and a blue visitor end, the players (below), sun shadows that follow
+the play (off with `?q=low`, which keeps soft blobs), the ball with a trail, route
 ribbons before the snap, the LOS and first-down lines, the QB's live aim as
 an arrow. Camera: high behind the QB so both wide receivers are on screen.
 Scorebug: Utah as home (Rice-Eccles), timeouts, clock, down & distance.
-Sound (`sound.js`): synthesised crowd, whistle, horn, "Charge!".
+Sound (`sound.js`): synthesised crowd, whistle, horn, "Charge!"; the
+cadence spoken ("Down!", "Set!", "Hut!").
+
+**The players** (`web/players.js`, names and numbers from `web/rosters.js`).
+Built from primitives but jointed like people: hips, knees, shoulders and
+elbows on pivots, a body that leans, a helmet with facemask, stripe (BYU)
+and side logo, shoulder pads, a jersey canvas wrapped round the torso with
+the number on the front and the name and number on the back, pants, socks,
+cleats, gloves, a few skin tones. Saturday's uniforms: Utah at home in red,
+BYU on the road in white. Poses: linemen in a three-point stance before
+the snap and crouched while they block; everyone else in a two-point stance
+by position; running strides with arms pumping; the QB cocked once the ball
+is snapped and following through when he throws; receivers (either team)
+reaching up when the ball is coming down on them; ball carriers tucking it.
+Defenders dropping into coverage backpedal, still facing the ball. Drawn
+15% big (27% for the man with the ball or the ball coming to him): true
+size, they are specks from the broadcast camera. Name tags ("#3 KASPER")
+over the QB and receivers before the snap, then over the ball carrier,
+the receiver the QB is facing, and the target of a ball in the air. The
+TV's report card and banners use the names too ("CAUGHT! #3 Kasper").
+
+**The depth chart** (`rosters.js`): expected starters by slot, researched
+2026-11-02 — Utah from Ourlads (updated 2026-10-31) plus Jackson Bennee #23
+at nickel; BYU from TWO-DEEP and KSL's game-7 chart. BYU's running back
+(Rex here; Moa on TWO-DEEP) and defensive line rotation are the guesses.
+Check game week's depth charts and edit the file.
 
 `?local=1` = BroadcastChannel instead of WebRTC (tabs of one browser);
 `?seed=N` = the same game every time; `?q=low` = no antialiasing, 1×.

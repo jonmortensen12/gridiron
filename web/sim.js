@@ -138,7 +138,7 @@ function lineUp(g){
   g.players = [];
   var o = {};
   // offensive line
-  for(var i = -2; i <= 2; i++) mk(g, 'o', 'OL', hash + i * 1.3, los - 0.6, 5);
+  for(var i = -2; i <= 2; i++) mk(g, 'o', 'OL', hash + i * 1.3, los - 0.6, 5).key = 'OL' + (i + 2);   // LT LG C RG RT
   o.QB = mk(g, 'o', 'QB', hash, P.kind === 'fg' ? los - 7 : los - (P.kind === 'run' ? 4 : 1.2), QB_SPEED);
   o.R  = mk(g, 'o', 'RB', hash + (P.kind === 'run' ? 0 : 2.2), los - 6, RB_SPEED);
   o.X  = mk(g, 'o', 'WR', -22, los - 0.7, WR_SPEED);
