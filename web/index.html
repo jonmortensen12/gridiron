@@ -102,9 +102,9 @@ table.st td:first-child, table.st th:first-child { text-align:left; }
     <div class="card roster"><h3>On the field</h3><div id="roster"><div style="color:var(--dim)">Scan the code to join.</div></div></div>
   </div>
   <div class="how"><b>How to play:</b> your phone is the ball and its <b>bottom is the nose</b>.
-    Hold it low in front of you, bottom pointing to your throwing side. <b>Hike</b> by bringing it up fast to where you throw from.
+    Hold it low in front of you and still, bottom pointing to your throwing side, palm toward you. <b>Hike</b> by bringing it up fast to where you throw from.
     Then <b>throw it at a receiver</b> (keep hold of your phone!): whoever is in that direction gets it.
-    High and easy is a <b>lob</b>, level and fast is a <b>bullet</b>. Tilt to run after the catch. Flick it at the floor to spike.
+    Your normal throw is a <b>bullet</b>; throw it easier for a <b>lob</b>. Tilt to run after the catch. Flick it at the floor to spike.
     Touchdown Pass is a practice field with no defence: start there.
     <br>No motion sensors, or little hands? Tap to hike, swipe up the screen to throw.</div>
   <div class="go" id="go">Waiting for phones. A phone's START begins, or press Enter.</div>
@@ -433,7 +433,7 @@ function onEvent(e){
         kind: e.kind || (m && m.kind) || 'PASS', to: RECEIVERS[e.target] || '-',
         dir: deg == null ? '-' : deg === 0 ? 'straight ahead' : Math.abs(deg) + '° ' + (deg > 0 ? 'right' : 'left'),
         spiral: m ? (m.spin > 0.6 ? 'tight' : m.spin > 0.2 ? 'some' : 'wobbly') : '-',
-        arm: m && m.arc ? m.arc + '°/s, nose ' + m.el + '° at release' : '', result: ''};
+        arm: m && m.arc ? m.arc + '°/s' + (m.usual ? ' (your usual ' + m.usual + ')' : '') + ', nose ' + m.el + '° at release' : '', result: ''};
       break;
     }
     case 'catch': if(card) card.result = 'CAUGHT · ' + e.air + ' yards in the air'; SND.thud(true); SND.roar(0.55, 2.5); if(q){ qs.comp++; buzz(q, 60); } bannerShow('CAUGHT!', '', 1.0); break;
@@ -549,13 +549,13 @@ function drawHud(){
   const P = S.PLAYS[G.call];
   if(v.phase === 'huddle') tip = `<b>${qn}</b> is the quarterback: pick a play on your phone`;
   else if(v.phase === 'presnap') tip = G.call === 'fg' ? `<b>${qn}</b>: bring the phone up to snap, then swing it to kick` : `<b>${P.name}</b> vs ${S.COVERS[G.cover] ? S.COVERS[G.cover].name : ''} · <b>${qn}</b>: phone low in front, bring it up to hike`;
-  else if(v.held) tip = `<b>THROW IT</b> at a receiver · high and easy = lob · level and fast = bullet`;
+  else if(v.held) tip = `<b>THROW IT</b> at a receiver · normal throw = bullet · easier = lob`;
   else if(v.kicking) tip = `<b>KICK!</b> swing the phone through`;
   else if(v.carrying) tip = `<b>Tilt your phone</b> to run`;
   else if(sess.kind === 'pass') tip = `<b>${qn}</b> · ${sess.scores[qbId] || 0} points`;
   else tip = esc(v.text || '');
-  if(sess.kind === 'pass' && v.phase === 'presnap') tip = `PRACTICE · <b>${P.name}</b> · <b>${qn}</b>: phone low in front, bottom to your throwing side, bring it up to hike`;
-  if(sess.kind === 'pass' && v.held) tip = `PRACTICE · <b>${qn}</b>: <b>THROW IT</b> at a receiver · lob or bullet`;
+  if(sess.kind === 'pass' && v.phase === 'presnap') tip = `PRACTICE · <b>${P.name}</b> · <b>${qn}</b>: phone low in front and still, bottom to your throwing side, then bring it up to hike`;
+  if(sess.kind === 'pass' && v.held) tip = `PRACTICE · <b>${qn}</b>: <b>THROW IT</b> at a receiver · normal = bullet, easier = lob`;
   const showCard = sess.kind === 'pass' && card;
   $('card').classList.toggle('hide', !showCard);
   if(showCard){ const h = cardHtml(card); if($('card').innerHTML !== h) $('card').innerHTML = h; }

@@ -59,7 +59,7 @@ function run(s, path, t0, t1, opts = {}){
     lagQ = slerp(lagQ, q, 0.15);
     const eu = toEuler(lagQ);
     s.orientation(eu.alpha, eu.beta, eu.gamma);
-    s.motion(rate, {x: acc * 0.6, y: acc * 0.8, z: 0}, null, dt, t * 1000);
+    s.motion(rate, {x: acc * 0.6, y: acc * 0.8, z: 0}, null, dt, (t + (s.__off || 0)) * 1000);   // one phone's clock runs on across plays
     prev = q;
   }
 }
@@ -78,63 +78,114 @@ function pose(H, e, r = 0){
   return T.qmul(T.qmul(T.qaxis(a[0], a[1], a[2], -e), base), T.qaxis(0, 1, 0, r));
 }
 /* Ready pose: held low in front, facing F, nose across the body to the throwing side, a little tilt. */
-function ready(F, hand = 'right', tilt = 0.1){
+/* Ready pose: held low in front, facing F. grip:
+     'up'      nose (bottom) to the throwing side, screen up
+     'toward'  nose to the throwing side, screen facing you (palm in, back of the hand out)
+     'away'    nose to the throwing side, screen facing forward
+     'down'    nose to the throwing side but pointing well down, screen toward you
+     'palmout' hand turned round: the nose to the OTHER side, screen up */
+function ready(F, hand = 'right', grip = 'toward'){
   const f = [Math.sin(F), Math.cos(F), 0], u = [0, 0, 1];
-  const side = cross(f, u);                                   // the right
-  const n = hand === 'left' ? side.map(v => -v) : side;
-  const nose = [n[0] * Math.cos(tilt), n[1] * Math.cos(tilt), -Math.sin(tilt)];
+  let side = cross(f, u);                                     // the right
+  if(hand === 'left') side = side.map(v => -v);
+  if(grip === 'palmout') side = side.map(v => -v);
+  const tilt = grip === 'down' ? 60 * D : 0.1;
+  const nose = [side[0] * Math.cos(tilt), side[1] * Math.cos(tilt), -Math.sin(tilt)];
   const y = nose.map(v => -v);
-  const z0 = cross(cross(y, u), y);                           // screen as close to up as it can be
+  const want = grip === 'toward' || grip === 'down' ? f.map(v => -v) : grip === 'away' ? f : u;
+  const z0 = cross(cross(y, want), y).map(v => -v);           // the screen as near to `want` as it can be
   const zn = Math.hypot(...z0), z = z0.map(v => v / zn);
   return fromFrame(cross(y, z), y, z);
 }
 function qlerp(a, b, k){ return slerp(a, b, k); }
 
 /* A whole play: ready (facing F), hike, turn toward F + off, throw. Returns
-   {hikes, throws, s}. opts: hand, cock/through/dur/acc/spin (the throw),
-   hikeDur (how fast it comes up), unarmed (the game is not asking). */
+   {hikes, throws, s}. opts: hand, grip (see ready), cock/through/dur/acc/
+   spin (the throw), hikeDur (how fast it comes up), unarmed (the game is not
+   asking), sense (reuse one, as a phone does all night). */
 function play(F, off, opts = {}){
   const hikes = [], throws = [];
-  const s = new T.ThrowSense({hand: opts.hand, onHike: h => { hikes.push(h); s.arm('throw'); }, onThrow: r => throws.push(r)});
-  const R = ready(F, opts.hand), H = F + off * D;
+  const s = opts.sense || new T.ThrowSense({hand: opts.hand});
+  s.onHike = h => { hikes.push(h); s.arm('throw'); }; s.onThrow = r => throws.push(r);
+  const R = ready(F, opts.hand, opts.grip), H = F + off * D;
   const cock = opts.cock != null ? opts.cock : 70 * D, through = opts.through != null ? opts.through : -30 * D;
   const dur = opts.dur || 0.18, hd = opts.hikeDur || 0.2, spin = opts.spin || 0;
-  const C0 = pose(F, cock), C1 = pose(H, cock);
+  const C0 = pose(F, 60 * D), C1 = pose(H, cock);           // the hike ends cocked normally; any bigger wind-up comes after
   const path = t => {
     if(t < 0.8) return {q: R, acc: 0};
-    if(t < 0.8 + hd){ const k = (t - 0.8) / hd; return {q: qlerp(R, C0, k * k * (3 - 2 * k)), acc: 10 * Math.sin(Math.PI * k)}; }
+    if(t < 0.8 + hd){ const k = (t - 0.8) / hd; return {q: qlerp(R, C0, k * k * (3 - 2 * k)), acc: 2 / hd * Math.sin(Math.PI * k)}; }
     if(t < 1.6) return {q: C0, acc: 0.2};
     if(t < 1.9){ const k = (t - 1.6) / 0.3; return {q: qlerp(C0, C1, k * k * (3 - 2 * k)), acc: 1}; }
     if(t < 2.1) return {q: C1, acc: 0.2};
     const u = Math.min(1, (t - 2.1) / dur), sm = u * u * (3 - 2 * u);
     return {q: pose(H, cock + (through - cock) * sm, spin * sm), acc: (opts.acc != null ? opts.acc : 24) * Math.sin(Math.PI * u)};
   };
-  if(!opts.unarmed) s.arm('hike');
+  s.arm(opts.unarmed ? null : 'hike');
   run(s, path, 0, 2.1 + dur + 0.6, opts);
+  s.arm(null);
+  s.__off = (s.__off || 0) + 10;
   return {hikes, throws, s};
 }
 const deg = r => (r / D).toFixed(1);
 const near = (a, b, tol) => Math.abs(((a - b + 540) % 360) - 180) < tol;
 
-console.log('the hike sets FORWARD');
+console.log('the hike, and FORWARD from it, for every grip');
 for(const hand of ['right', 'left']){
-  for(const F of [0, 70, 175, -100]){
-    const {hikes} = play(F * D, 0, {hand});
-    ok(hikes.length === 1 && near(hikes[0].h0 / D, F, 6), `${hand}-hander facing ${F} deg: one hike, forward read as ${hikes[0] ? deg(hikes[0].h0) : 'nothing'} deg`);
+  for(const grip of ['toward', 'up', 'away', 'down', 'palmout']){
+    for(const F of [0, 120, -100]){
+      const {hikes, throws, s: sn} = play(F * D, 30 * (hand === 'left' ? -1 : 1), {hand, grip});
+      const want = 30 * (hand === 'left' ? -1 : 1);
+      const good = hikes.length === 1 && throws.length === 1 && near(throws[0].h / D, want, 8);
+      if(!good || F === 0) ok(good, `${hand}-hander, ${grip.padEnd(7)}, facing ${String(F).padStart(4)}: hiked ${hikes.length}x, ` +
+        `throw ${want} deg read as ${throws[0] ? deg(throws[0].h) : 'nothing'} (forward settled at ${deg(sn.h0)}, flip ${!!sn.flip})`);
+    }
   }
 }
 {
-  // a tap instead: looking at the screen, phone upright and tipped back a little
-  const F = 40 * D, f = [Math.sin(F), Math.cos(F), 0], c = Math.cos(15 * D), sn = Math.sin(15 * D);
-  const y = [-f[0] * sn, -f[1] * sn, c], z = [-f[0] * c, -f[1] * c, -sn];
-  const s = new T.ThrowSense();
-  run(s, () => ({q: fromFrame(cross(y, z), y, z), acc: 0}), 0, 0.5);
-  s.hikeNow(500);
-  ok(near(s.h0 / D, 40, 5), `a tap to hike while looking at the screen: forward is where the back of the phone faces (${deg(s.h0)} deg)`);
+  // the grip is remembered: palm out once, the next hike guesses the right way at once
+  const s = new T.ThrowSense({hand: 'right'});
+  play(0, 0, {grip: 'palmout', sense: s});
+  const h = []; s.onHike = x => h.push(x); s.arm('hike');
+  run(s, () => ({q: ready(50 * D, 'right', 'palmout'), acc: 0}), 0, 0.6);
+  run(s, t => { const k = Math.min(1, (t - 0.6) / 0.2); return {q: slerp(ready(50 * D, 'right', 'palmout'), pose(50 * D, 70 * D), k), acc: 9 * Math.sin(Math.PI * k)}; }, 0.6, 0.85);
+  ok(h.length === 1 && near(h[0].h0 / D, 50, 8), `a palm-out thrower's next hike is right straight away (${h[0] ? deg(h[0].h0) : '-'} deg)`);
 }
 {
-  const slow = play(0, 0, {hikeDur: 1.6});
-  ok(slow.hikes.length === 0, 'bringing the phone up slowly is not a hike');
+  // a tap instead: looking at the screen, phone upright and tipped back a little; then cocked
+  const F = 40 * D, f = [Math.sin(F), Math.cos(F), 0], c = Math.cos(15 * D), sn = Math.sin(15 * D);
+  const y = [-f[0] * sn, -f[1] * sn, c], z = [-f[0] * c, -f[1] * c, -sn];
+  const q0 = fromFrame(cross(y, z), y, z), s = new T.ThrowSense();
+  run(s, () => ({q: q0, acc: 0}), 0, 0.5);
+  s.hikeNow(500);
+  run(s, t => ({q: slerp(q0, pose(F, 70 * D), Math.min(1, (t - 0.5) / 0.3)), acc: 2}), 0.5, 1.8);
+  ok(near(s.h0 / D, 40, 8), `a tap to hike, then up to the throwing spot: forward ${deg(s.h0)} deg (facing 40)`);
+}
+{
+  const sl = [], ss = new T.ThrowSense({onHike: x => sl.push(x)});
+  ss.arm('hike');
+  run(ss, t => { const k = Math.max(0, Math.min(1, (t - 0.8) / 1.6)), sm = k * k * (3 - 2 * k);
+    return {q: slerp(ready(0), pose(0, 60 * D), sm), acc: 1.2 * Math.sin(Math.PI * k)}; }, 0, 3.2);
+  ok(sl.length === 0, 'bringing the phone up slowly (1.6 s) is not a hike');
+  const h = [], s = new T.ThrowSense({onHike: x => h.push(x)});
+  s.arm('hike');
+  run(s, t => ({q: T.qmul(T.qaxis(0, 0, 1, Math.sin(t * 9) * 0.9), ready(0)), acc: 6}), 0, 1.5);
+  ok(h.length === 0, 'waving the phone about without ever holding still is not a hike');
+  run(s, () => ({q: ready(0), acc: 0}), 1.5, 2.2);
+  run(s, t => ({q: slerp(ready(0), pose(0, -0.2), Math.min(1, (t - 2.2) / 0.1) * 0.4), acc: 8}), 2.2, 2.6);
+  ok(h.length === 0, 'a quick jiggle from the ready pose (well under 45 degrees) is not a hike');
+}
+{
+  // a fast thrower: the throw starts 0.2 s after the hike, before the nose has had time to settle
+  const hikes = [], throws = [], s = new T.ThrowSense({onHike: x => { hikes.push(x); s.arm('throw'); }, onThrow: r => throws.push(r)});
+  s.arm('hike');
+  const R = ready(0, 'right', 'toward'), C0 = pose(25 * D, 70 * D);
+  run(s, t => {
+    if(t < 0.6) return {q: R, acc: 0};
+    if(t < 0.8) return {q: slerp(R, C0, (t - 0.6) / 0.2), acc: 9};
+    if(t < 0.95) return {q: C0, acc: 0.5};
+    const u = Math.min(1, (t - 0.95) / 0.18); return {q: pose(25 * D, 70 * D - 100 * D * u * u * (3 - 2 * u)), acc: 24 * Math.sin(Math.PI * u)};
+  }, 0, 1.6);
+  ok(throws.length === 1 && near(throws[0].h / D, 25, 10), `hike and throw in one motion: the throw ${throws[0] ? deg(throws[0].h) : 'missing'} deg (want 25)`);
 }
 
 console.log('throws: which way, lob or bullet');
@@ -147,10 +198,19 @@ for(const off of [0, 25, -40, 60, -65]){
   ok(throws.length === 1 && near(throws[0].h / D, 20, 8), `a left-hander's throw 20 deg right: read ${throws[0] ? deg(throws[0].h) : 'nothing'} deg`);
 }
 {
-  const lob = play(0, 0, {cock: 100 * D, through: 5 * D, dur: 0.32, acc: 9}).throws[0];
-  const bullet = play(0, 0, {cock: 55 * D, through: -55 * D, dur: 0.13, acc: 30}).throws[0];
-  ok(lob && lob.kind === 'LOB', `a high, easy release is a LOB: ${lob && lob.kind} (power ${lob && lob.power.toFixed(2)}, nose ${lob && lob.el} deg)`);
-  ok(bullet && bullet.kind === 'BULLET', `a level, fast release is a BULLET: ${bullet && bullet.kind} (power ${bullet && bullet.power.toFixed(2)}, nose ${bullet && bullet.el} deg)`);
+  // one phone, all night: your normal throws are bullets, an easier one is a lob
+  const s = new T.ThrowSense({hand: 'right'});
+  const kinds = [];
+  for(let i = 0; i < 4; i++) kinds.push(play(0, 0, {sense: s}).throws[0]);
+  const easy = play(0, 0, {sense: s, dur: 0.32, acc: 8}).throws[0];
+  const high = play(0, 0, {sense: s, cock: 110 * D, through: 20 * D}).throws[0];
+  const again = play(0, 0, {sense: s}).throws[0];
+  ok(kinds.every(k => k && k.kind === 'BULLET'), `your normal hard throws are BULLETs (${kinds.map(k => k && k.kind).join(', ')})`);
+  ok(easy && easy.kind === 'LOB', `an easier throw than your usual is a LOB: ${easy && easy.kind} (${easy && easy.arc} vs usual ${easy && easy.usual} deg/s)`);
+  ok(high && high.kind === 'LOB', `a hard throw released with the nose high is a LOB: ${high && high.kind} (nose ${high && high.el} deg)`);
+  ok(again && again.kind === 'BULLET', `and the next normal throw is a bullet again: ${again && again.kind}`);
+  const first = play(0, 0, {dur: 0.4, acc: 6}).throws[0];
+  ok(first && first.kind === 'LOB', `a soft first throw of the night lobs: ${first && first.kind} (${first && first.arc} deg/s)`);
   const hard = play(0, 0).throws[0], soft = play(0, 0, {dur: 0.4, acc: 6}).throws[0];
   ok(hard && soft && hard.power > 0.6 && soft.power < 0.4, `a hard throw is hard (${hard && hard.power.toFixed(2)}), a soft toss soft (${soft && soft.power.toFixed(2)})`);
   const sp = play(0, 10, {spin: 4 * Math.PI}).throws[0];

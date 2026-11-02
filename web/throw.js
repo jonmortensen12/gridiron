@@ -2,12 +2,12 @@
 
    The NOSE of the ball is the BOTTOM of the phone. No buttons:
 
-   1. Ready: hold the phone out in front of you, low, the bottom (the nose)
-      pointing to your throwing side - right for a right-hander, left for a
-      left-hander.
-   2. Hike: bring it up fast to where you throw from (often out to the
-      side). That is the snap, and the ready pose it came from says which
-      way you are facing: FORWARD for this play. No pointing at the TV.
+   1. Ready: hold the phone out in front of you, low and steady, the bottom
+      (the nose) pointing to your throwing side, palm toward you.
+   2. Hike: bring it up quickly to where you throw from (often out to the
+      side). That is the snap. The ready pose gives the line you face
+      along, and the cocked pose just after (the nose pointing forward-ish)
+      says which way along it: FORWARD for this play. No pointing at the TV.
    3. Throw: come over the top. The throw is seen as the phone spinning
       forward (relative to FORWARD) fast; the release is the peak.
 
@@ -17,8 +17,8 @@
             up or down there, the direction the spin carried it. The game
             uses it only to choose WHICH RECEIVER - the one in that
             direction. Leading him is the game's job, not the arm's.
-     kind   LOB or BULLET: a high release with an easy arm lobs, a level
-            release with a fast arm is a bullet.
+     kind   LOB or BULLET: softer than your own usual throw (or released
+            with the nose high) lobs; your normal hard throw is a bullet.
      power  arm speed 0..1, spin the roll about the nose (a spiral).
 
    Orientation: the gyro integrated per devicemotion event, pulled gently
@@ -69,19 +69,26 @@ function heading(v){ return Math.atan2(v[0], v[1]); }
 function noseOf(q){ return qrot(q, NOSE); }
 function elev(v){ return Math.asin(Math.max(-1, Math.min(1, v[2]))); }
 
-/* FORWARD from a ready pose: the nose points across the body to the
-   throwing side, so forward is a quarter turn from it - left of the nose
-   for a right-hander, right of it for a left-hander. A phone that is not
-   in the ready pose (nose up or down) falls back to the back of the phone,
-   which faces away from you when you look at the screen. */
+/* The forward LINE from a ready pose. Held low in front, the nose points
+   across the body, so forward is a quarter turn from it; if the nose
+   points steeply up or down, the phone's face looks forward or back. Which
+   way along the line is settled just after the hike (settleForward): the
+   hike ends cocked, the nose pointing forward-ish. Grips differ - palm in,
+   palm out, screen up or toward you - and the sign is where they differ,
+   so it is never guessed from the grip alone. The hand only picks the
+   first guess. */
 function forwardFrom(q, hand){
   var n = noseOf(q);
-  if(Math.abs(n[2]) < 0.7){
+  if(Math.abs(n[2]) < 0.8){
     var h = horiz(n);
     return hand === 'left' ? Math.atan2(h[1], -h[0]) : Math.atan2(-h[1], h[0]);
   }
   var b = horiz(qrot(q, [0, 0, -1]));
   return b ? heading(b) : 0;
+}
+function qangle(a, b){
+  var d = Math.abs(a[0]*b[0] + a[1]*b[1] + a[2]*b[2] + a[3]*b[3]);
+  return 2 * Math.acos(Math.min(1, d));
 }
 
 function ThrowSense(opts){
@@ -97,7 +104,9 @@ function ThrowSense(opts){
   this.spikeCb = opts.onSpike || null;
   this.lastSpike = -1e9; this.lastEvent = -1e9;
   this.cur = null;          // a throw in progress
-  this.recent = [];         // [t, |w|, nose elevation (deg), q] for the hike
+  this.calmT = null; this.calmQ = null; this.left = null;   // the hike: calm, then a burst
+  this.settle = null;       // after the hike: which way the nose settles
+  this.peaks = [];          // this player's recent arm speeds, for lob or bullet
   this.live = 0;            // arm speed right now, 0..1, for a meter
 }
 ThrowSense.prototype.orientation = function(alpha, beta, gamma){
@@ -110,7 +119,11 @@ ThrowSense.prototype.orientation = function(alpha, beta, gamma){
    seen, so a motion from before cannot fire into the new phase. */
 ThrowSense.prototype.arm = function(mode){
   mode = mode || null;
-  if(mode !== this.mode){ this.mode = mode; this.cur = null; this.recent = []; }
+  if(mode !== this.mode){ this.mode = mode; this.cur = null; this.calmT = null; this.left = null; }
+};
+/* For the phone's screen: is the ready pose steady enough to hike from? */
+ThrowSense.prototype.readyToHike = function(t){
+  return this.mode === 'hike' && this.calmT != null && t - this.calmT >= 250;
 };
 ThrowSense.prototype.motion = function(rate, acc, accG, dt, t){
   this.gotMotion = true;
@@ -138,8 +151,9 @@ ThrowSense.prototype.motion = function(rate, acc, accG, dt, t){
     this.lastSpike = t;
     if(this.spikeCb) this.spikeCb();
   }
-  if(this.mode === 'hike') return this.hikeStep(t, wmag, el);
-  if(this.mode !== 'throw' || t - this.lastEvent < 600) return;
+  if(this.settle) this.settleStep(t, nose);
+  if(this.mode === 'hike') return this.hikeStep(t, wmag, a);
+  if(this.mode !== 'throw' || t - this.lastEvent < 450) return;
 
   /* The arm's spin in the room, flat part only. An overhand throw spins the
      phone about a level axis, and the throw goes where that spin carries
@@ -154,7 +168,10 @@ ThrowSense.prototype.motion = function(rate, acc, accG, dt, t){
   var fwd = along > -0.2 ? lev : 0;
   var c = this.cur;
   if(!c){
-    if(fwd > 220) c = this.cur = {t0: t, s: [], peak: 0, pf: 0, pi: 0};
+    if(fwd > 220){
+      if(this.settle) this.settleStep(t, nose, true);     // a quick thrower: settle on what we have
+      c = this.cur = {t0: t, s: [], peak: 0, pf: 0, pi: 0};
+    }
     else return;
   }
   c.s.push({t: t, arc: arc, roll: roll, a: a, el: el, nose: nose, dir: dir, fwd: fwd});
@@ -163,28 +180,52 @@ ThrowSense.prototype.motion = function(rate, acc, accG, dt, t){
   if((t - c.s[c.pi].t > 40 && fwd < c.pf * 0.45) || t - c.t0 > 500) this.finish(t);
 };
 
-/* The hike: from a steady ready pose, the phone comes up fast - the nose
-   rises 25 degrees or more within a third of a second while turning fast.
-   FORWARD is read from the steady pose just before. */
-ThrowSense.prototype.hikeStep = function(t, wmag, el){
-  this.recent.push([t, wmag, el, this.q]);
-  while(this.recent.length && t - this.recent[0][0] > 700) this.recent.shift();
-  if(t - this.lastEvent < 800 || wmag < 220) return;
-  // the last calm moment before this movement
-  var calm = null;
-  for(var i = this.recent.length - 1; i >= 0; i--){ if(this.recent[i][1] < 90){ calm = this.recent[i]; break; } }
-  if(!calm || t - calm[0] > 350) return;
-  if(el - calm[2] < 25) return;
-  this.lastEvent = t;
-  this.h0 = forwardFrom(calm[3], this.hand);
-  this.recent = [];
-  if(this.onHike) this.onHike({h0: this.h0});
+/* The hike: the phone held steady (a quarter second under 70 deg/s and
+   3.5 m/s^2), then brought up quickly - turning over 220 deg/s or the hand
+   over 8 m/s^2 - and 45 degrees or more from where it was within 0.4 s of
+   leaving the steady pose. A lift counts as much as a twist. */
+ThrowSense.prototype.hikeStep = function(t, wmag, a){
+  var calm = wmag < 70 && a < 3.5;
+  if(calm){
+    if(this.calmT == null) this.calmT = t;
+    this.calmQ = this.q; this.left = null;
+    return;
+  }
+  if(this.calmT != null){
+    this.left = t - this.calmT >= 250 ? {t: t, q: this.calmQ, burst: 0} : null;
+    this.calmT = null;
+  }
+  var L = this.left;
+  if(!L || t - this.lastEvent < 800) return;
+  if(t - L.t > 400){ this.left = null; return; }
+  L.burst = Math.max(L.burst, wmag / 220, a / 8);
+  if(L.burst >= 1 && qangle(this.q, L.q) > 45 * D2R){
+    this.lastEvent = t; this.left = null;
+    this.h0 = wrap(forwardFrom(L.q, this.hand) + (this.flip ? Math.PI : 0));
+    this.settle = {from: t + 120, until: t + 600, x: 0, y: 0};
+    if(this.onHike) this.onHike({h0: this.h0});
+  }
 };
-/* A tap instead of the motion: FORWARD from wherever the phone is now. */
+/* A tap instead of the motion: the line from wherever the phone is now;
+   the direction once it settles into the throwing spot. */
 ThrowSense.prototype.hikeNow = function(t){
-  if(this.q) this.h0 = forwardFrom(this.q, this.hand);
-  this.lastEvent = t || 0;
-  this.recent = [];
+  t = t || 0;
+  if(this.q) this.h0 = wrap(forwardFrom(this.q, this.hand) + (this.flip ? Math.PI : 0));
+  this.lastEvent = t;
+  this.settle = {from: t + 250, until: t + 1100, x: 0, y: 0};
+};
+/* Just after the hike the phone is cocked, the nose pointing forward-ish:
+   if it points against FORWARD, FORWARD was the wrong way along its line.
+   Remembered (this.flip): a grip is a habit, so the next hike guesses right. */
+ThrowSense.prototype.settleStep = function(t, nose, now){
+  // a nose within 75 degrees of level says which way it points; nearer level counts for more
+  var S = this.settle, nh = Math.hypot(nose[0], nose[1]);
+  if(t >= S.from && nh > 0.25){ S.x += nose[0] * nh; S.y += nose[1] * nh; }
+  if(t < S.until && !now) return;
+  this.settle = null;
+  if(!S.x && !S.y) return;
+  var f = [Math.sin(this.h0), Math.cos(this.h0)];
+  if(S.x * f[0] + S.y * f[1] < 0){ this.h0 = wrap(this.h0 + Math.PI); this.flip = !this.flip; }
 };
 
 ThrowSense.prototype.finish = function(t){
@@ -206,10 +247,18 @@ ThrowSense.prototype.finish = function(t){
   var dh = nx || ny ? Math.atan2(nx, ny) : Math.atan2(sx, sy);
   var h = wrap(dh - this.h0);
   var elR = c.s[c.pi].el;
-  var lob = 6 + 0.55 * (elR + 10) + 14 * (1 - power) > 27;
+  /* LOB or BULLET. Mostly: softer than your own usual throw is a lob. The
+     usual is the faster half of your last eight throws (at least 700 deg/s,
+     so the first throws of the night have something to go on). A high
+     release (the nose up at the peak) pushes toward a lob too. */
+  var ps = this.peaks.slice().sort(function(x, y){ return y - x; });
+  var usual = Math.max(700, ps.length ? ps[Math.min(ps.length - 1, Math.floor(ps.length / 3))] : 0);
+  var soft = 1 - c.peak / usual;
+  var lob = soft * 2.2 + (elR - 10) / 30 > 0.5;
+  this.peaks.push(c.peak); if(this.peaks.length > 8) this.peaks.shift();
   this.lastEvent = t;
   var r = {h: h, kind: lob ? 'LOB' : 'BULLET', power: power, spin: Math.max(0, Math.min(1, (roll - 150) / 650)),
-           arc: Math.round(c.peak), acc: Math.round(acc * 10) / 10, el: Math.round(elR)};
+           arc: Math.round(c.peak), usual: Math.round(usual), acc: Math.round(acc * 10) / 10, el: Math.round(elR)};
   if(this.onThrow) this.onThrow(r);
   return r;
 };

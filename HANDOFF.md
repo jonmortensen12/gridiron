@@ -50,18 +50,33 @@ game should **intuitively choose which receiver** and **lob or bullet**,
 not judge aim or lead. History: v1 held a thumb on the screen and pointed
 the top at the TV; v2 dropped the thumb; v3 is this.
 
-1. **Ready**: phone held low in front, bottom (nose) pointing to the
-   throwing side — right for a right-hander, left for a left-hander (set
-   once on the which-hand screen, toggled with the foot button).
-2. **Hike**: brought up fast to the throwing spot. Seen when the phone
-   turns faster than 220°/s and the nose has risen 25°+ since the last
-   calm moment (under 90°/s, within 350 ms). **FORWARD** for the play is
-   read from that calm ready pose: a quarter turn from the nose — left of
-   it for a right-hander, right of it for a left-hander. If the nose was
-   pointing up or down then (not a ready pose — e.g. someone looking at
-   the screen), the back of the phone is taken as forward instead. A tap
-   on the pad hikes too (`hikeNow`, same rule from the pose at the tap).
-   FORWARD is fresh every play, so gyro drift between plays never matters.
+First real-phone test (Jon, 2026-11-02): the hike did not register; with
+the natural right-handed grip (bottom pointing right, palm toward the body,
+back of the hand out) forward came out backwards, so the wrong receivers
+got it; turned palm-out it picked receivers well; every throw was a
+bullet. Why, as far as can be told without the phone: a hike needed a fast
+twist AND the nose rising 25°, and a real hike is mostly a lift; and with
+the nose pointing well down in the ready pose, forward was taken from the
+back of the phone, which in the palm-in grip faces the body. Fixed as below.
+
+1. **Ready**: phone held low and still in front, bottom (nose) pointing to
+   the throwing side, palm toward you. Other grips work too (screen up,
+   toward you, away, nose pointing down, palm out): `throwcheck` plays all
+   of them for both hands.
+2. **Hike**: steady for a quarter second (under 70°/s and 3.5 m/s²), then
+   a burst — turning over 220°/s or the hand over 8 m/s², a lift counts as
+   much as a twist — that ends 45° or more from the steady pose within
+   0.4 s. The phone shows HOLD STILL… then NOW BRING IT UP! (with a tick
+   of vibration) once it is steady enough. A tap on the pad hikes too.
+   - **The forward line** comes from the steady ready pose: a quarter turn
+     from the nose (or the phone's face, if the nose points steeply down).
+   - **Which way along it** comes from just after the hike (120–600 ms;
+     a tap: 250–1100 ms): the phone is cocked, the nose pointing
+     forward-ish, so if the nose (when within 75° of level) points against
+     the guess, the guess flips. The flip is remembered (`flip`): the next
+     hike guesses that grip's way at once. A throw that starts before the
+     window ends settles on what it has.
+   - FORWARD is fresh every play, so gyro drift between plays never matters.
 3. **Throw**: armed once the TV says the ball is in hand. The phone's spin
    in room axes, level part only: an overhand throw spins it about a level
    axis and the throw goes where that spin carries the top of the arc
@@ -75,9 +90,13 @@ the top at the TV; v2 dropped the thumb; v3 is this.
      direction. The TV gives the ball to the receiver whose bearing from
      the QB (0.3 s ahead) is nearest that direction (`pickTarget`), and
      `throwTo` leads him perfectly.
-   - **LOB or BULLET**: `6 + 0.55·(nose pitch at the peak + 10) + 14·(1 −
-     power) > 27` is a lob. High release + easy arm = lob, level + fast =
-     bullet. In the game: a lob goes up ~9 yd at 41°, over underneath
+   - **LOB or BULLET**: your normal throw is a bullet; an easier one is a
+     lob. "Normal" is this phone's own: the faster third of its last eight
+     throws (at least 700°/s). `soft = 1 − peak/usual`; lob when
+     `2.2·soft + (nose pitch at the peak − 10)/30 > 0.5`, so about 25%
+     easier than usual, or a hard throw let go with the nose 25° higher.
+     (The first version used absolute numbers and everything came out a
+     bullet.) The practice card shows the arm speed against "your usual". In the game: a lob goes up ~9 yd at 41°, over underneath
      defenders, but hangs, so deep defenders have time to come; a bullet
      goes at ~10° (more if it must, to stay under 33 yd/s), no time to
      react, but a defender in the lane can get a hand on it.
@@ -96,8 +115,8 @@ dry-fly-phone itself was never reachable from this session (not in its
 GitHub scope; code search does not reach it either).
 
 **None of this has been on a real phone yet.** The practice field's report
-card is the tuning tool. If hikes do not register, lower the 220°/s or the
-25° rise in `hikeStep`; if the wrong receiver gets it, look at the card's
+card is the tuning tool. If hikes do not register, lower the 220°/s / 8 m/s²
+burst or the 45° in `hikeStep` (or loosen the steady pose: 70°/s, 3.5 m/s²); if the wrong receiver gets it, look at the card's
 "Thrown" angle against where you threw (a mirror image means an axis sign);
 if lobs come out as bullets, the formula above.
 

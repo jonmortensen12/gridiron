@@ -105,9 +105,9 @@ button:disabled { opacity:.35; }
 <div class="scr" id="sReady">
   <h2>Your phone is the ball</h2>
   <div class="howto">The <b>bottom of the phone is the nose</b> of the ball.<br>
-    <b>Ready:</b> hold it low in front of you, the bottom pointing to your throwing side.<br>
-    <b>Hike:</b> bring it up fast to where you throw from.<br>
-    <b>Throw</b> it at a receiver — keep hold of the phone! High and easy is a <b>lob</b>, level and fast a <b>bullet</b>.</div>
+    <b>Ready:</b> hold it low in front of you and still, the bottom pointing to your throwing side, palm toward you.<br>
+    <b>Hike:</b> bring it up quickly to where you throw from.<br>
+    <b>Throw</b> it at a receiver — keep hold of the phone! Your normal throw is a <b>bullet</b>; throw it <b>easier</b> (or let go high) for a <b>lob</b>.</div>
   <div class="center dim" id="readyMsg" style="margin:10px 0"></div>
   <div style="flex:1"></div>
   <div class="center" style="font-weight:800;margin-bottom:8px">Which hand do you throw with?</div>
@@ -438,13 +438,13 @@ function bindPad(pad){
 }
 function onMotionThrow(r){
   if(!st || st.role !== 'qb' || !st.v || !(st.v.held || st.v.kicking) || swipe) return;
-  send({t: 'throw', h: r.h, kind: r.kind, power: r.power, spin: r.spin, arc: r.arc, el: r.el});
+  send({t: 'throw', h: r.h, kind: r.kind, power: r.power, spin: r.spin, arc: r.arc, usual: r.usual, el: r.el});
   vibrate(40);
   toast(st.v.kicking ? 'KICK!' : r.kind);
 }
 var dragAim = null;
 function cardHtml(c){
-  return '<b>' + esc(c.kind) + '</b> &nbsp;to the ' + esc(c.to) + ' · thrown ' + esc(c.dir) + (c.arm ? '<br><span class="dim">your arm: ' + esc(c.arm) + '</span>' : '') +
+  return '<b>' + esc(c.kind) + '</b> &nbsp;to the ' + esc(c.to) + ' · thrown ' + esc(c.dir) + (c.arm ? '<br><span class="dim">arm: ' + esc(c.arm) + '</span>' : '') +
     (c.result ? '<br><span style="color:var(--gold);font-weight:800">' + esc(c.result) + '</span>' : '');
 }
 function paintPad(){
@@ -455,9 +455,9 @@ function paintPad(){
   var t;
   if(v.phase === 'presnap') t = swipe ? 'TAP TO HIKE<small>then swipe up toward a receiver: slow = lob, fast = bullet</small>'
     : v.call === 'fg' ? 'BRING IT UP TO SNAP<small>then swing the phone through like a kicking leg</small>'
-    : 'HIKE IT<small>phone low in front of you, bottom pointing ' + side + ' · bring it up fast to your throwing spot<br>(or tap here)</small>';
+    : (hikeReady ? 'NOW BRING IT UP!' : 'HOLD STILL…') + '<small>phone low in front of you, bottom pointing ' + side + ', palm toward you · then bring it up quickly to your throwing spot<br>(or tap here)</small>';
   else if(v.kicking) t = 'KICK!<small>swing the phone through</small>';
-  else if(v.held) t = (swipe ? 'SWIPE UP!' : 'THROW IT!') + '<small>' + (swipe ? 'toward a receiver · slow = lob, fast = bullet' : 'at a receiver — whoever is that way gets it<br>high and easy = lob · level and fast = bullet') + '</small>';
+  else if(v.held) t = (swipe ? 'SWIPE UP!' : 'THROW IT!') + '<small>' + (swipe ? 'toward a receiver · slow = lob, fast = bullet' : 'at a receiver — whoever is that way gets it<br>normal throw = bullet · easier = lob') + '</small>';
   else if(st.practice) t = 'NEXT REP…';
   else t = '';
   var card = st.practice && st.card ? '<div id="padCard">' + cardHtml(st.card) + '</div>' : '';
@@ -478,10 +478,14 @@ function onSpikeGesture(){
   send({t: 'spike'}); vibrate(120); toast('SPIKE!');
 }
 
-/* 20 times a second: where the phone points, the arm, the steering */
+/* 20 times a second: where the phone points, the arm, the steering, and
+   whether the ready pose is steady enough to hike from */
+var hikeReady = false;
 setInterval(function(){
   if(!st || st.role !== 'qb' || !st.v) return;
   var v = st.v;
+  var hr = sense.readyToHike(performance.now());
+  if(hr !== hikeReady){ hikeReady = hr; if(hr) vibrate(15); paintPad(); }
   armSense();
   if(v.held || v.kicking){
     var a = swipe ? (dragAim != null && touchStart ? {h: dragAim} : null) : sense.aim();
