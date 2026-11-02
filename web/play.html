@@ -34,7 +34,7 @@
 :root { --bg:#0b1424; --ink:#f4f7fb; --dim:#9fb0c6; --gold:#ffd21f; --byu:#0062B8; --byud:#002E5D; --utah:#CC0000; --team:#0062B8; }
 * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
 html, body { margin:0; height:100%; background:var(--bg); color:var(--ink); font:16px/1.3 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow:hidden; overscroll-behavior:none; touch-action:none; -webkit-user-select:none; user-select:none; }
-#app { position:fixed; left:0; top:0; width:100vw; height:100vh; transform-origin:0 0; overflow:hidden; }
+#app { position:fixed; left:0; top:0; width:100vw; height:100vh; height:100dvh; transform-origin:0 0; overflow:hidden; }
 .scr { position:absolute; inset:0; display:none; flex-direction:column; padding:max(14px, env(safe-area-inset-top)) 16px max(14px, env(safe-area-inset-bottom)); }
 .scr.on { display:flex; }
 h1 { font:900 44px/1 Impact, "Arial Black", sans-serif; margin:8px 0 2px; letter-spacing:.03em; text-align:center; }
@@ -77,8 +77,10 @@ button:disabled { opacity:.35; }
 .chips { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; }
 .chips button { font-size:13px; padding:8px 10px; font-weight:700; }
 .res td { padding:4px 8px; }
-#lockPhone { width:110px; height:190px; margin:10px auto; border:4px solid #fff; border-radius:18px; position:relative; transform:rotate(-8deg); }
-#lockPhone::after { content:'▲ TV'; position:absolute; top:-30px; left:50%; transform:translateX(-50%); font-weight:900; color:var(--gold); }
+#hands { display:flex; gap:10px; }
+#hands button { flex:1; font-size:22px; padding:26px 8px; }
+.howto { background:#13213a; border-radius:14px; padding:12px 14px; font-size:15px; line-height:1.4; }
+.howto b { color:var(--gold); }
 .foot { display:flex; gap:8px; margin-top:8px; }
 .foot button { flex:1; font-size:13px; padding:9px; background:#13213a; color:var(--dim); }
 </style>
@@ -99,24 +101,25 @@ button:disabled { opacity:.35; }
   </div>
 </div>
 
-<!-- point at the TV -->
-<div class="scr" id="sLock">
-  <h2>Point the top of your phone at the TV</h2>
-  <div id="lockPhone"></div>
-  <div class="center dim">Hold it like the football: the top of the phone is the nose. Point it straight at the TV, then tap LOCK.<br><br>Do this again any time the aim drifts.</div>
-  <div class="center dim" id="lockMsg" style="margin-top:10px"></div>
+<!-- which hand, and how it works -->
+<div class="scr" id="sReady">
+  <h2>Your phone is the ball</h2>
+  <div class="howto">The <b>bottom of the phone is the nose</b> of the ball.<br>
+    <b>Ready:</b> hold it low in front of you, the bottom pointing to your throwing side.<br>
+    <b>Hike:</b> bring it up fast to where you throw from.<br>
+    <b>Throw</b> it at a receiver — keep hold of the phone! High and easy is a <b>lob</b>, level and fast a <b>bullet</b>.</div>
+  <div class="center dim" id="readyMsg" style="margin:10px 0"></div>
   <div style="flex:1"></div>
-  <div class="stack">
-    <button class="big" id="btnLock">LOCK</button>
-    <button id="btnSwipe">No sensors? Use swipe instead</button>
-  </div>
+  <div class="center" style="font-weight:800;margin-bottom:8px">Which hand do you throw with?</div>
+  <div id="hands"><button class="big" data-hand="left">LEFT</button><button class="big" data-hand="right">RIGHT</button></div>
+  <button id="btnSwipe" style="margin-top:10px">No motion sensors? Swipe instead</button>
 </div>
 
 <!-- everything else -->
 <div class="scr" id="sGame">
   <div id="bar"><span id="barL"></span><span class="clk" id="barC"></span><span id="barR"></span></div>
   <div id="main"></div>
-  <div class="foot"><button id="btnRelock">⌖ RE-AIM</button><button id="btnMode">SWIPE MODE</button><button id="btnTeam">TEAM</button></div>
+  <div class="foot"><button id="btnHand">RIGHT-HANDED</button><button id="btnMode">SWIPE MODE</button><button id="btnTeam">TEAM</button></div>
 </div>
 <div id="toast"></div>
 </div>
@@ -126,7 +129,8 @@ button:disabled { opacity:.35; }
 <script>
 'use strict';
 var $ = function(id){ return document.getElementById(id); };
-var sense = new GThrow.ThrowSense({onSpike: function(){ onSpikeGesture(); }, onThrow: function(r){ onMotionThrow(r); }});
+var myHand = load('gridiron_hand') === 'left' ? 'left' : 'right', ready = false;
+var sense = new GThrow.ThrowSense({hand: myHand, onSpike: function(){ onSpikeGesture(); }, onThrow: function(r){ onMotionThrow(r); }, onHike: function(){ onHikeGesture(); }});
 var conn = null, st = null, joined = false, swipe = false, sensorsSeen = false;
 // ?pid= is for the headless check, whose phones share one browser's storage
 var pidArg = (location.search.match(/[?&]pid=(\w+)/) || [])[1];
@@ -184,8 +188,8 @@ try { goCode = sessionStorage.getItem('gridiron_go'); } catch(e){}
 if(goCode && goCode === $('inCode').value && myName){
   // the page after JOIN: no text fields in play from here on
   ['inCode', 'inName'].forEach(function(id){ var el = $(id); el.parentNode.removeChild(el); });
-  show('sLock');
-  $('lockMsg').textContent = 'Joining ' + goCode + '…';
+  show('sReady');
+  $('readyMsg').textContent = 'Joining ' + goCode + '…';
   setTimeout(function(){ connect(goCode); }, 0);   // after the rest of the page has set itself up
 }
 var joining = null, retry = 0;
@@ -198,12 +202,12 @@ function connect(code){
       c.on('data', onData);
       c.on('close', function(){ conn = null; toast('RECONNECTING'); setTimeout(function(){ connect(code); }, 1500); });
       send({t: 'hello', id: myId, name: myName, team: myTeam});
-      $('lockMsg').textContent = 'In room ' + code + ' as ' + myName + '.';
-      if(!joined){ joined = true; if(swipe || sense.locked) show('sGame'); }
+      $('readyMsg').textContent = 'In room ' + code + ' as ' + myName + '.';
+      if(!joined){ joined = true; if(ready) show('sGame'); }
     },
     error: function(e){
       var msg = e === 'peer-unavailable' ? 'No room ' + code + '. Check the code on the TV.' : 'Could not connect (' + e + '). Trying again…';
-      $('lockMsg').textContent = msg;
+      $('readyMsg').textContent = msg;
       if(!joined && e === 'peer-unavailable'){
         // a room that has gone: back to a fresh join screen
         try { sessionStorage.removeItem('gridiron_go'); } catch(x){}
@@ -215,7 +219,7 @@ function connect(code){
   });
 }
 function send(m){ if(conn) try { conn.send(m); } catch(e){} }
-function show(id){ ['sJoin', 'sLock', 'sGame'].forEach(function(s){ $(s).classList.toggle('on', s === id); }); }
+function show(id){ ['sJoin', 'sReady', 'sGame'].forEach(function(s){ $(s).classList.toggle('on', s === id); }); }
 
 /* ---------- the sensors ---------- */
 addEventListener('deviceorientation', function(e){
@@ -232,23 +236,30 @@ addEventListener('devicemotion', function(e){
   if(e.rotationRate && e.rotationRate.alpha != null) sensorsSeen = true;
   sense.motion(e.rotationRate, e.acceleration, e.accelerationIncludingGravity, dt, now);
 });
-$('btnLock').onclick = function(){
-  askMotion();                     // iOS: from inside this tap, first thing
-  goFull(); keepAwake();
-  $('lockMsg').textContent = 'Reading the sensors…';
-  var t0 = performance.now();
-  (function wait(){
-    if(sensorsSeen && sense.q){
-      sense.lock(); swipe = false; paintMode();
-      toast('LOCKED'); vibrate(40); show('sGame'); return;
-    }
-    if(performance.now() - t0 > 1500){ swipe = true; paintMode(); show('sGame'); toast('NO SENSORS: SWIPE MODE'); return; }
-    setTimeout(wait, 50);
-  })();
-};
-$('btnSwipe').onclick = function(){ goFull(); keepAwake(); swipe = true; paintMode(); show('sGame'); };
-$('btnRelock').onclick = function(){ if(swipe && !sensorsSeen) return toast('NO SENSORS'); show('sLock'); };
-$('btnMode').onclick = function(){ swipe = !swipe; if(!swipe && !sensorsSeen){ swipe = true; toast('NO SENSORS'); } paintMode(); };
+/* Choosing the hand is the tap that asks iOS for the motion sensors, goes
+   fullscreen and locks portrait (Android). */
+document.querySelectorAll('[data-hand]').forEach(function(b){
+  b.onclick = function(){
+    askMotion();                   // iOS: from inside this tap, first thing
+    goFull(); keepAwake();
+    setHand(b.dataset.hand);
+    $('readyMsg').textContent = 'Reading the sensors…';
+    var t0 = performance.now();
+    (function wait(){
+      if(sensorsSeen && sense.q){ ready = true; swipe = false; paintMode(); vibrate(40); show('sGame'); return; }
+      if(performance.now() - t0 > 1500){ ready = true; swipe = true; paintMode(); show('sGame'); toast('NO SENSORS: SWIPE MODE'); return; }
+      setTimeout(wait, 50);
+    })();
+  };
+});
+function setHand(h){
+  myHand = h === 'left' ? 'left' : 'right'; sense.hand = myHand; save('gridiron_hand', myHand);
+  $('btnHand').textContent = myHand === 'left' ? 'LEFT-HANDED' : 'RIGHT-HANDED';
+}
+setHand(myHand);
+$('btnSwipe').onclick = function(){ goFull(); keepAwake(); ready = true; swipe = true; paintMode(); show('sGame'); };
+$('btnHand').onclick = function(){ setHand(myHand === 'left' ? 'right' : 'left'); toast(myHand.toUpperCase() + '-HANDED'); lastView = ''; render(); };
+$('btnMode').onclick = function(){ swipe = !swipe; if(!swipe && !sensorsSeen){ swipe = true; toast('NO SENSORS'); } paintMode(); lastView = ''; render(); };
 $('btnTeam').onclick = function(){ myTeam = myTeam === 'byu' ? 'utah' : 'byu'; save('gridiron_team', myTeam); paintTeam(); send({t: 'team', team: myTeam}); toast(myTeam.toUpperCase()); };
 function paintMode(){ $('btnMode').textContent = swipe ? 'MOTION MODE' : 'SWIPE MODE'; }
 paintMode();
@@ -298,7 +309,7 @@ function render(){
     else key = 'qb:wait:' + v.text;
   } else if(st.role === 'def') key = 'def:' + v.phase + (v.phase === 'huddle' ? myCover : '');
   else key = 'watch:' + st.role + v.phase + st.qbName + (v.running ? 'r' : '') + (st.card ? st.card.result + st.card.mph : '');
-  sense.arm(!!(st.scr === 'game' && st.role === 'qb' && v && (v.held || v.kicking) && !swipe));
+  armSense();
   if(key !== lastView){ lastView = key; build(key); }
   if(key === 'qb:pad') paintPad();
 }
@@ -385,15 +396,26 @@ function build(key){
 function esc(s){ return String(s).replace(/[&<>"]/g, function(c){ return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]; }); }
 
 /* ---------- the football in your hand ----------
-   A tap hikes it (practice snaps by itself). Then the throw is the motion:
-   throw.js is armed while the ball is in your hand and reports the throw
-   by itself. Swipe mode: a flick up the pad instead. */
+   The hike is a motion too: phone low in front, bottom pointing to your
+   throwing side, brought up fast. It also tells throw.js which way is
+   forward this play. A tap on the pad hikes as well. Then the throw is the
+   motion; throw.js reports which way it went and lob or bullet, and the TV
+   puts it on the receiver in that direction. Swipe mode: tap to hike,
+   flick up the pad to throw (slow flick = lob, fast = bullet). */
+function armSense(){
+  var v = st && st.v, qb = st && st.scr === 'game' && st.role === 'qb' && v;
+  sense.arm(!qb || swipe ? null : v.phase === 'presnap' ? 'hike' : (v.held || v.kicking) ? 'throw' : null);
+}
+function onHikeGesture(){
+  if(!st || st.role !== 'qb' || !st.v || st.v.phase !== 'presnap' || swipe) return;
+  send({t: 'snap'}); vibrate(50); toast('HIKE!');
+}
 var touchStart = null;
 function bindPad(pad){
   function down(x, y){
     if(!st || st.role !== 'qb') return;
     goFull();
-    if(st.v.phase === 'presnap' && !st.practice){ send({t: 'snap'}); vibrate(30); }
+    if(st.v.phase === 'presnap'){ sense.hikeNow(performance.now()); send({t: 'snap'}); vibrate(30); }
     touchStart = {x: x, y: y, t: performance.now()};
   }
   function up(x, y){
@@ -403,8 +425,8 @@ function bindPad(pad){
     touchStart = null;
     var v = st.v;
     if(sw && (swipe || Math.hypot(d[0], d[1]) > 90) && (v.held || v.kicking || v.phase === 'presnap')){
-      send({t: 'throw', h: sw.h, loft: sw.loft, power: sw.power, spin: sw.spin, kind: 'SWIPE'});
-      vibrate(25);
+      send({t: 'throw', h: sw.h, power: sw.power, spin: sw.spin, kind: sw.kind, swipe: true});
+      vibrate(25); toast(sw.kind);
     }
   }
   pad.addEventListener('touchstart', function(e){ e.preventDefault(); var t = e.changedTouches[0]; down(t.clientX, t.clientY); }, {passive: false});
@@ -416,26 +438,26 @@ function bindPad(pad){
 }
 function onMotionThrow(r){
   if(!st || st.role !== 'qb' || !st.v || !(st.v.held || st.v.kicking) || swipe) return;
-  send({t: 'throw', h: r.h, loft: r.loft, power: r.power, spin: r.spin, kind: r.kind, arc: r.arc, el: r.el});
+  send({t: 'throw', h: r.h, kind: r.kind, power: r.power, spin: r.spin, arc: r.arc, el: r.el});
   vibrate(40);
-  toast(st.v.kicking ? 'KICK!' : r.kind + (r.power > 0.75 ? ' · ROCKET' : ''));
+  toast(st.v.kicking ? 'KICK!' : r.kind);
 }
 var dragAim = null;
 function cardHtml(c){
-  return '<b>' + esc(c.kind) + '</b> &nbsp;' + c.mph + ' mph · ' + c.loft + '° up · ' + esc(c.aim) + ' · spiral ' + esc(c.spiral) +
+  return '<b>' + esc(c.kind) + '</b> &nbsp;to the ' + esc(c.to) + ' · thrown ' + esc(c.dir) + (c.arm ? '<br><span class="dim">your arm: ' + esc(c.arm) + '</span>' : '') +
     (c.result ? '<br><span style="color:var(--gold);font-weight:800">' + esc(c.result) + '</span>' : '');
 }
 function paintPad(){
   var say = $('padSay');
   if(!say || !st) return;
-  var v = st.v, pad = $('pad');
+  var v = st.v, pad = $('pad'), side = myHand === 'left' ? 'LEFT' : 'RIGHT';
   pad.classList.toggle('held', !!(v.held || v.kicking));
   var t;
-  if(v.phase === 'presnap') t = st.practice ? 'GET SET…<small>the ball snaps by itself. Then throw your phone at your receiver — hold on to it!</small>'
-    : v.call === 'fg' ? 'TAP TO SNAP<small>then swing the phone through like a kicking leg</small>'
-    : 'TAP TO HIKE<small>' + (swipe ? 'then swipe up the screen to throw' : 'then just throw — keep hold of the phone!') + '</small>';
+  if(v.phase === 'presnap') t = swipe ? 'TAP TO HIKE<small>then swipe up toward a receiver: slow = lob, fast = bullet</small>'
+    : v.call === 'fg' ? 'BRING IT UP TO SNAP<small>then swing the phone through like a kicking leg</small>'
+    : 'HIKE IT<small>phone low in front of you, bottom pointing ' + side + ' · bring it up fast to your throwing spot<br>(or tap here)</small>';
   else if(v.kicking) t = 'KICK!<small>swing the phone through</small>';
-  else if(v.held) t = (swipe ? 'SWIPE UP!' : 'THROW IT!') + '<small>' + (swipe ? 'flick toward your receiver' : 'high and easy = lob · level and fast = bullet') + '</small>';
+  else if(v.held) t = (swipe ? 'SWIPE UP!' : 'THROW IT!') + '<small>' + (swipe ? 'toward a receiver · slow = lob, fast = bullet' : 'at a receiver — whoever is that way gets it<br>high and easy = lob · level and fast = bullet') + '</small>';
   else if(st.practice) t = 'NEXT REP…';
   else t = '';
   var card = st.practice && st.card ? '<div id="padCard">' + cardHtml(st.card) + '</div>' : '';
@@ -460,9 +482,9 @@ function onSpikeGesture(){
 setInterval(function(){
   if(!st || st.role !== 'qb' || !st.v) return;
   var v = st.v;
-  sense.arm(st.scr === 'game' && (v.held || v.kicking) && !swipe);
-  if(v.phase === 'presnap' || v.held || v.kicking){
-    var a = swipe ? (dragAim != null && touchStart ? {h: dragAim} : {h: 0}) : sense.aim();
+  armSense();
+  if(v.held || v.kicking){
+    var a = swipe ? (dragAim != null && touchStart ? {h: dragAim} : null) : sense.aim();
     if(a) send({t: 'aim', h: a.h, p: sense.live});
     var mi = document.querySelector('#meter i');
     if(mi) mi.style.height = Math.round(sense.live * 100) + '%';
@@ -491,7 +513,7 @@ function fitOrientation(){
   screenTurn = (ang === 90 || ang === 270) && W > H ? ang : 0;
   if(screenTurn === 90){ app.style.width = H + 'px'; app.style.height = W + 'px'; app.style.transform = 'translate(0px,' + H + 'px) rotate(-90deg)'; }
   else if(screenTurn === 270){ app.style.width = H + 'px'; app.style.height = W + 'px'; app.style.transform = 'translate(' + W + 'px,0px) rotate(90deg)'; }
-  else { app.style.width = ''; app.style.height = ''; app.style.transform = ''; }
+  else { app.style.width = W + 'px'; app.style.height = H + 'px'; app.style.transform = ''; }
 }
 /* a movement on the glass, in the turned layout's own directions */
 function toLocal(dx, dy){

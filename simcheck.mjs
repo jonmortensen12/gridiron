@@ -105,12 +105,42 @@ console.log('rules');
   ok(d > 25 && d < 45, `half power at 23 degrees carries ${d.toFixed(0)} yards`);
 }
 
+console.log('\nthrowing: direction picks the man, the game leads him');
+{
+  const g = S.newDrive({seed: 21, ball: 40});
+  S.callPlay(g, 'post'); S.snap(g); run(g, 1.2);     // the back stays in to block on POST
+  const qb = g.o.QB, bear = k => Math.atan2(g.o[k].x - qb.x, g.o[k].y - qb.y);
+  ok(S.pickTarget(g, -1.2).key === 'X', `a throw well left goes to the left wideout (${S.pickTarget(g, -1.2).key})`);
+  ok(S.pickTarget(g, 1.2).key === 'Z', `a throw well right goes to the right wideout (${S.pickTarget(g, 1.2).key})`);
+  ok(S.pickTarget(g, bear('Y')).key === 'Y', 'a throw straight at the slot goes to the slot');
+}
+{
+  // a perfect lead: on an empty practice field every throw to a running man is caught
+  let caught = 0, n = 0, lobH = 0, bulH = 0;
+  for(let sd = 1; sd <= 40; sd++){
+    for(const kind of ['LOB', 'BULLET']){
+      const g = S.newDrive({seed: sd, practice: true, clock: 0, ot: true, ball: 30});
+      S.callPlay(g, ['slants', 'outs', 'post', 'curls'][sd % 4]); S.snap(g); run(g, 1.3);
+      const key = ['X', 'Z', 'Y', 'T'][sd % 4];
+      if(!g.o[key].route) continue;
+      S.throwTo(g, {to: key, kind}); n++;
+      let top = 0;
+      for(let i = 0; i < 600 && g.phase === 'live'; i++){ S.step(g, DT); top = Math.max(top, g.ballObj.z); }
+      if(kind === 'LOB') lobH = Math.max(lobH, top); else bulH = Math.max(bulH, top);
+      if(g.lastWhy === 'caught' || (g.result && g.result.why === 'td')) caught++;
+    }
+  }
+  ok(caught / n > 0.8, `led perfectly, ${caught}/${n} caught with nobody covering (drops still happen)`);
+  ok(lobH > bulH + 4, `a lob goes up (${lobH.toFixed(1)} yd), a bullet stays flat (${bulH.toFixed(1)} yd)`);
+}
+
 console.log('\ntuning: the Two-Minute Drill, computer quarterback');
 const N = +process.argv[2] || 200;
 const skills = {
-  sharp: {aim: 3, dist: 0.07, patience: 1.2},
-  party: {aim: 8, dist: 0.18, patience: 1},
-  kid:   {aim: 16, dist: 0.35, patience: 0.7}
+  // pick: how often the right receiver; kind: how often the right ball (lob or bullet)
+  sharp: {pick: 0.92, kind: 0.9, patience: 1.2},
+  party: {pick: 0.7, kind: 0.7, patience: 1},
+  kid:   {pick: 0.45, kind: 0.55, patience: 0.7}
 };
 function drives(sc, assist, sk, n){
   let win = 0, plays = 0, att = 0, comp = 0, sacks = 0, ints = 0, how = {};

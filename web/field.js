@@ -268,6 +268,10 @@ export function createField(canvas, opts = {}){
   const aim = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 1), aimMat);
   aim.rotation.x = -Math.PI / 2; aim.visible = false; aim.renderOrder = 3;
   const aimPivot = new THREE.Group(); aimPivot.add(aim); scene.add(aimPivot);
+  // the receiver the QB is facing: who gets it if he throws now
+  const ring = new THREE.Mesh(new THREE.RingGeometry(1.1, 1.5, 32), new THREE.MeshBasicMaterial({color: 0xffd21f, transparent: true, opacity: 0.85, depthWrite: false}));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.06; ring.renderOrder = 3; ring.visible = false;
+  scene.add(ring);
 
   // camera
   const camPos = new THREE.Vector3(0, 12, 20), camLook = new THREE.Vector3(0, 0, -20);
@@ -341,7 +345,10 @@ export function createField(canvas, opts = {}){
     routeMat.opacity = g.phase === 'presnap' ? 0.8 : Math.max(0, 0.8 - g.liveT * 0.7);
     // aim
     const qb = g.o && g.o.QB;
-    aim.visible = !!(qb && live.aim != null && (g.phase === 'presnap' || (g.phase === 'live' && g.carrier === qb && !g.thrown)) && g.call !== 'run');
+    aim.visible = !!(qb && live.aim != null && g.phase === 'live' && g.carrier === qb && !g.thrown && g.call !== 'run' && g.call !== 'fg');
+    const tg = live.target && g.o ? g.o[live.target] : null;
+    ring.visible = !!(tg && aim.visible);
+    if(ring.visible){ ring.position.x = tg.x; ring.position.z = -tg.y; ring.scale.setScalar(1 + 0.12 * Math.sin(performance.now() / 120)); }
     if(aim.visible){
       const L = 12 + (live.power || 0) * 30;
       aim.scale.set(1, L, 1); aim.position.set(0, 0.07, -L / 2);

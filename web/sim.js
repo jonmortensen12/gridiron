@@ -278,7 +278,7 @@ function throwBall(g, t){
     var power = clamp(t.power, 0, 1);
     h = t.h || 0;
     loft = clamp(t.loft == null ? 0.35 : t.loft, 0.08, 0.95);
-    speed = 11 + 19 * power;
+    speed = t.speed || 11 + 19 * power;
   }
   // assist: bend the throw toward the receiver it was nearly aimed at
   var best = null, bestErr = 1e9;
@@ -301,7 +301,8 @@ function throwBall(g, t){
     }
     best.rc.target = true;
   }
-  speed = Math.min(speed, 34);
+  if(t.target && g.o[t.target]){ best = {rc: g.o[t.target]}; g.o[t.target].target = true; }
+  speed = Math.min(speed, 36);
   var hz = Math.cos(loft) * speed;
   var b = g.ballObj;
   b.state = 'air'; b.owner = null;
@@ -322,6 +323,55 @@ function targets(g){
   return ['X', 'Z', 'Y', 'T', 'R'].map(function(k){ return g.o[k]; }).filter(function(p){ return p.route; });
 }
 function angDiff(a, b){ var d = a - b; while(d > Math.PI) d -= 2 * Math.PI; while(d < -Math.PI) d += 2 * Math.PI; return d; }
+
+/* ---------- the throw, as a phone throws it ----------
+   t = {h: which way (radians from FORWARD, + = right), kind: 'LOB' |
+   'BULLET', power, spin}, or {to: 'X'|'Z'|'Y'|'T'|'R', kind}.
+   The phone only says which way and how; the game picks the receiver in
+   that direction and puts the ball on him, led perfectly. A LOB goes up
+   high (over the underneath defenders, but it hangs: the deep ones have
+   time to come); a BULLET goes flat and fast (no time to react, but a
+   defender in the lane can get a hand on it). */
+var LOB_LOFT = 0.72, BULLET_LOFT = 0.17, MAX_SPEED = 33;
+function pickTarget(g, h){
+  var qb = g.o.QB, best = null, bd = 1e9;
+  targets(g).forEach(function(rc){
+    var f = predictPos(rc, 0.3), bear = Math.atan2(f[0] - qb.x, f[1] - qb.y);
+    var d = Math.abs(angDiff(bear, h || 0));
+    if(d < bd){ bd = d; best = rc; }
+  });
+  return best;
+}
+/* Speed and loft that land a ball at catch height (1.2) at range R, from the hand (2.0). */
+function solveThrow(R, loft, capped){
+  for(var i = 0; i < 40; i++){
+    var c = Math.cos(loft), den = 2 * c * c * (0.8 + R * Math.tan(loft));
+    var v = den > 0 ? Math.sqrt(G * R * R / den) : 99;
+    if(!capped || v <= MAX_SPEED || loft > 0.7) return {v: v, loft: loft, T: R / (v * c)};
+    loft += 0.02;                          // too far for a flat one: put a little air under it
+  }
+  return {v: MAX_SPEED, loft: loft, T: R / (MAX_SPEED * Math.cos(loft))};
+}
+function throwTo(g, t){
+  if(g.phase !== 'live' || g.thrown || !g.o || g.carrier !== g.o.QB || g.sacked) return false;
+  var rc = t.to && g.o[t.to] && g.o[t.to].route ? g.o[t.to] : pickTarget(g, t.h);
+  if(!rc) return false;
+  var lob = t.kind === 'LOB', qb = g.o.QB, T = 0, sol = null, fx = rc.x, fy = rc.y;
+  for(var i = 0; i < 8; i++){
+    var f = predictPos(rc, T + 0.05);
+    fx = f[0]; fy = f[1];
+    sol = solveThrow(Math.max(2, len(fx - qb.x, fy - qb.y)), lob ? LOB_LOFT : BULLET_LOFT, !lob);
+    T = sol.T;
+  }
+  var ok = throwBall(g, {h: Math.atan2(fx - qb.x, fy - qb.y), loft: sol.loft, speed: sol.v, spin: t.spin == null ? 0.7 : t.spin, raw: true, target: rc.key});
+  if(ok){
+    g.throwInfo.kind = lob ? 'LOB' : 'BULLET';
+    g.throwInfo.target = rc.key;
+    var e = g.ev[g.ev.length - 1];
+    if(e && e.type === 'throw'){ e.target = rc.key; e.kind = g.throwInfo.kind; e.dist = Math.round(len(fx - qb.x, fy - qb.y)); }
+  }
+  return ok;
+}
 
 /* Where should a ball thrown at this speed and loft go to meet rc? */
 function leadFor(g, rc, speed, loft){
@@ -639,7 +689,8 @@ function tryCatch(g){
     return true;
   }
   // receiver gets a hand on it
-  var hot = Math.max(0, len(b.vx, b.vy) - 26) * 0.04;            // a bullet at close range
+  var thrownFrom = len(b.x - (b.from ? b.from[0] : b.x), b.y - (b.from ? b.from[1] : b.y));
+  var hot = Math.max(0, len(b.vx, b.vy) - 26) * 0.04 * (thrownFrom < 12 ? 1 : 0.25);   // a bullet at close range
   // a defender near the catch: the closer, the harder
   var near = 1e9;
   g.players.forEach(function(q){ if(q.side === 'd' && q.pos !== 'DL'){ var d = len(q.x - b.x, q.y - b.y); if(d < near) near = d; } });
@@ -817,22 +868,32 @@ function bot(g, dt, sk){
   }
   if(g.phase === 'presnap'){ if(b.wait <= 0) snap(g); return; }
   if(g.phase !== 'live') return;
-  if(g.call === 'fg'){ if(g.liveT > 0.8 && !g.kicked) kick(g, {power: 0.55 + g.r() * 0.45, h: gauss(g) * sk.aim * Math.PI / 180}); return; }
+  if(g.call === 'fg'){ if(g.liveT > 0.8 && !g.kicked) kick(g, {power: 0.55 + g.r() * 0.45, h: gauss(g) * (sk.aim || 6) * Math.PI / 180}); return; }
   var qb = g.o.QB;
   if(g.carrier === qb && !g.thrown && PLAYS[g.call].kind === 'pass' && g.liveT > Math.min(b.throwAt, g.pocket - 0.25)){
-    var best = null, bs = -1e9;
+    var best = null, bs = -1e9, cands = [];
     targets(g).forEach(function(rc){
       var L = leadFor(g, rc, 22, 0.42);
       if(!L) return;
+      L.rc = rc; cands.push(L);
       var sep = 1e9;
       g.players.forEach(function(p){ if(p.side === 'd' && p.pos !== 'DL'){ var d = len(p.x - L.x, p.y - L.y) - p.speed * L.T * 0.5; if(d < sep) sep = d; } });
       var score = Math.min(sep, 6) * 3 + (L.y - g.ball) * 0.25 + (L.y >= 100 ? 6 : 0) + (Math.abs(L.x) > HALF_W - 3 && !g.untimed && g.clock < 60 ? 2 : 0);
       if(score > bs){ bs = score; best = L; }
     });
     if(best){
-      var loft = clamp(0.25 + best.d * 0.006, 0.25, 0.7);
-      var need = Math.sqrt(best.d * G / Math.sin(2 * loft)) * (1 + gauss(g) * sk.dist);
-      throwBall(g, {h: best.h + gauss(g) * sk.aim * Math.PI / 180, loft: loft, power: clamp((need - 11) / 19, 0, 1), spin: 0.5});
+      // a person reads the field less well: sometimes the wrong man, sometimes the wrong ball
+      var pick = best;
+      if(g.r() > (sk.pick == null ? 0.8 : sk.pick)) pick = cands[Math.floor(g.r() * cands.length)];
+      var under = false;
+      g.players.forEach(function(p){
+        if(p.side !== 'd' || p.pos === 'DL') return;
+        var ax = pick.x - qb.x, ay = pick.y - qb.y, L2 = ax * ax + ay * ay, u = ((p.x - qb.x) * ax + (p.y - qb.y) * ay) / L2;
+        if(u > 0.2 && u < 0.85 && Math.abs((p.x - qb.x) * ay - (p.y - qb.y) * ax) / Math.sqrt(L2) < 2.5) under = true;
+      });
+      var kind = pick.d > 26 || under ? 'LOB' : 'BULLET';
+      if(g.r() > (sk.kind == null ? 0.8 : sk.kind)) kind = kind === 'LOB' ? 'BULLET' : 'LOB';
+      throwTo(g, {to: pick.rc.key, kind: kind, spin: 0.6});
     }
   }
   if(g.carrier && g.carrier !== qb){
@@ -849,7 +910,7 @@ function bot(g, dt, sk){
 }
 function gauss(g){ return (g.r() + g.r() + g.r() - 1.5) * 1.41; }
 
-var API = {bot: bot, newDrive: newDrive, step: step, callPlay: callPlay, snap: snap, throwBall: throwBall, steer: steer,
+var API = {throwTo: throwTo, pickTarget: pickTarget, bot: bot, newDrive: newDrive, step: step, callPlay: callPlay, snap: snap, throwBall: throwBall, steer: steer,
   kick: kick, timeout: timeout, view: view, canCall: canCall, passScore: passScore, leadFor: leadFor, targets: targets,
   PLAYS: PLAYS, PLAY_ORDER: PLAY_ORDER, COVERS: COVERS, ASSIST: ASSIST, SCENARIOS: SCENARIOS, HALF_W: HALF_W, G: G};
 if(typeof module !== 'undefined' && module.exports) module.exports = API;

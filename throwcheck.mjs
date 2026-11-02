@@ -1,14 +1,16 @@
-/* throwcheck - the throw reader against throws whose answer is known.
+/* throwcheck - the throw reader against hikes and throws whose answer is known.
 
-   Builds a phone's true pose through a throw (held like a ball, the nose
-   pointing where it goes, a wind-up, an overhand arc, a spiral), turns it
-   into the events a phone would fire (gyro rates in the phone's own
-   frame, the browser's orientation lagging behind), and checks what
-   throw.js sees with no button at all: that there was exactly one throw,
-   its heading, lob or bullet, power, spin. And what must NOT be a throw:
-   the wind-up, waving the phone about, lowering it, anything while the
-   reader is not armed. The spike, and the TV anywhere on the compass
-   (including across the +-180 seam).
+   The phone is the ball, its BOTTOM is the nose. Builds a phone's true pose
+   through a play - the ready pose (held low in front, nose across the body
+   to the throwing side), the hike (brought up fast to the throwing spot),
+   a turn toward a receiver, the overhand throw - turns it into the events
+   a phone would fire (gyro rates in the phone's own frame, the browser's
+   orientation lagging behind), and checks what throw.js sees with no
+   button: FORWARD from the hike, for right- and left-handers, facing
+   anywhere on the compass; one throw per throw; which way it went; LOB or
+   BULLET; power; spin. And what must not count: a slow lift as a hike, a
+   wind-up, waving, lowering the phone, anything not armed. The spike, and
+   the swipe fallback.
 
    node throwcheck.mjs */
 import fs from 'fs';
@@ -39,13 +41,6 @@ function toEuler(q){
 }
 function conj(q){ return [q[0], -q[1], -q[2], -q[3]]; }
 
-/* Pose with the nose at heading H (radians, clockwise from north), elevation e, rolled by r about the nose. */
-function pose(H, e, r){
-  const f = [Math.sin(H), Math.cos(H), 0], u = [0, 0, 1], a = cross(u, f);
-  const base = fromFrame(cross(f, u), f, u);                 // screen up, nose forward
-  return T.qmul(T.qmul(T.qaxis(a[0], a[1], a[2], -e), base), T.qaxis(0, 1, 0, r));
-}
-
 /* Feed a pose trajectory to a ThrowSense. path(t) -> {q, acc}. */
 function run(s, path, t0, t1, opts = {}){
   const dt = 1 / 60;
@@ -75,114 +70,131 @@ function slerp(a, b, t){
   return q.map(v => v / n);
 }
 
-/* A whole throw: aim at the TV and LOCK, arm, wind up (nose up and back
-   over the shoulder), come over the top (nose sweeps forward and down
-   through `cock` -> `through` in `dur` s), follow through, settle.
-   Returns every throw the reader reported. */
-function throwAt(tvH, offsetDeg, opts = {}){
-  const seen = [];
-  const s = new T.ThrowSense({onThrow: r => seen.push(r)});
-  const H = tvH + offsetDeg * D;
-  run(s, () => ({q: pose(tvH, 0.1, 0), acc: 0}), 0, 0.8);
-  s.lock();
-  if(!opts.unarmed) s.arm(true);
-  const cock = opts.cock != null ? opts.cock : 75 * D, through = opts.through != null ? opts.through : -30 * D, dur = opts.dur || 0.18;
-  const spin = opts.spin || 0, wind = opts.wind || 0.25;
+/* Throwing pose: the nose (bottom of the phone) at heading H, elevation e, rolled r about the nose. */
+function pose(H, e, r = 0){
+  const f = [Math.sin(H), Math.cos(H), 0], u = [0, 0, 1], a = cross(u, f);
+  const y = f.map(v => -v), z = u;                            // nose forward, screen up
+  const base = fromFrame(cross(y, z), y, z);
+  return T.qmul(T.qmul(T.qaxis(a[0], a[1], a[2], -e), base), T.qaxis(0, 1, 0, r));
+}
+/* Ready pose: held low in front, facing F, nose across the body to the throwing side, a little tilt. */
+function ready(F, hand = 'right', tilt = 0.1){
+  const f = [Math.sin(F), Math.cos(F), 0], u = [0, 0, 1];
+  const side = cross(f, u);                                   // the right
+  const n = hand === 'left' ? side.map(v => -v) : side;
+  const nose = [n[0] * Math.cos(tilt), n[1] * Math.cos(tilt), -Math.sin(tilt)];
+  const y = nose.map(v => -v);
+  const z0 = cross(cross(y, u), y);                           // screen as close to up as it can be
+  const zn = Math.hypot(...z0), z = z0.map(v => v / zn);
+  return fromFrame(cross(y, z), y, z);
+}
+function qlerp(a, b, k){ return slerp(a, b, k); }
+
+/* A whole play: ready (facing F), hike, turn toward F + off, throw. Returns
+   {hikes, throws, s}. opts: hand, cock/through/dur/acc/spin (the throw),
+   hikeDur (how fast it comes up), unarmed (the game is not asking). */
+function play(F, off, opts = {}){
+  const hikes = [], throws = [];
+  const s = new T.ThrowSense({hand: opts.hand, onHike: h => { hikes.push(h); s.arm('throw'); }, onThrow: r => throws.push(r)});
+  const R = ready(F, opts.hand), H = F + off * D;
+  const cock = opts.cock != null ? opts.cock : 70 * D, through = opts.through != null ? opts.through : -30 * D;
+  const dur = opts.dur || 0.18, hd = opts.hikeDur || 0.2, spin = opts.spin || 0;
+  const C0 = pose(F, cock), C1 = pose(H, cock);
   const path = t => {
-    // the wind-up: turn to the target and lift the nose up and back (fast, like a real one)
-    if(t < 0.8 + wind){ const k = Math.min(1, (t - 0.8) / wind), sm = k * k * (3 - 2 * k); return {q: pose(tvH + (H - tvH) * sm, 0.1 + (cock - 0.1) * sm, 0), acc: 6 * Math.sin(Math.PI * k)}; }
-    if(t < 1.3) return {q: pose(H, cock, 0), acc: 0.2};
-    const u = Math.min(1, (t - 1.3) / dur), sm = u * u * (3 - 2 * u);
-    return {q: pose(H, cock + (through - cock) * sm, spin * sm), acc: (opts.acc != null ? opts.acc : 24) * Math.sin(Math.PI * Math.min(1, u))};
+    if(t < 0.8) return {q: R, acc: 0};
+    if(t < 0.8 + hd){ const k = (t - 0.8) / hd; return {q: qlerp(R, C0, k * k * (3 - 2 * k)), acc: 10 * Math.sin(Math.PI * k)}; }
+    if(t < 1.6) return {q: C0, acc: 0.2};
+    if(t < 1.9){ const k = (t - 1.6) / 0.3; return {q: qlerp(C0, C1, k * k * (3 - 2 * k)), acc: 1}; }
+    if(t < 2.1) return {q: C1, acc: 0.2};
+    const u = Math.min(1, (t - 2.1) / dur), sm = u * u * (3 - 2 * u);
+    return {q: pose(H, cock + (through - cock) * sm, spin * sm), acc: (opts.acc != null ? opts.acc : 24) * Math.sin(Math.PI * u)};
   };
-  run(s, path, 0.8, 1.3 + dur + 0.6, opts);
-  return opts.all ? seen : (seen.length === 1 ? seen[0] : null);
+  if(!opts.unarmed) s.arm('hike');
+  run(s, path, 0, 2.1 + dur + 0.6, opts);
+  return {hikes, throws, s};
+}
+const deg = r => (r / D).toFixed(1);
+const near = (a, b, tol) => Math.abs(((a - b + 540) % 360) - 180) < tol;
+
+console.log('the hike sets FORWARD');
+for(const hand of ['right', 'left']){
+  for(const F of [0, 70, 175, -100]){
+    const {hikes} = play(F * D, 0, {hand});
+    ok(hikes.length === 1 && near(hikes[0].h0 / D, F, 6), `${hand}-hander facing ${F} deg: one hike, forward read as ${hikes[0] ? deg(hikes[0].h0) : 'nothing'} deg`);
+  }
+}
+{
+  // a tap instead: looking at the screen, phone upright and tipped back a little
+  const F = 40 * D, f = [Math.sin(F), Math.cos(F), 0], c = Math.cos(15 * D), sn = Math.sin(15 * D);
+  const y = [-f[0] * sn, -f[1] * sn, c], z = [-f[0] * c, -f[1] * c, -sn];
+  const s = new T.ThrowSense();
+  run(s, () => ({q: fromFrame(cross(y, z), y, z), acc: 0}), 0, 0.5);
+  s.hikeNow(500);
+  ok(near(s.h0 / D, 40, 5), `a tap to hike while looking at the screen: forward is where the back of the phone faces (${deg(s.h0)} deg)`);
+}
+{
+  const slow = play(0, 0, {hikeDur: 1.6});
+  ok(slow.hikes.length === 0, 'bringing the phone up slowly is not a hike');
 }
 
-console.log('throw reader: no button, the motion is the throw');
-for(const [tv, off] of [[0, 20], [70, -15], [175, 12], [-100, 0], [200, -30]]){
-  const r = throwAt(tv * D, off);
-  ok(r && Math.abs(r.h / D - off) < 4, `TV at ${tv} deg, thrown ${off} deg: one throw, read ${r ? (r.h / D).toFixed(1) : 'nothing'} deg`);
+console.log('throws: which way, lob or bullet');
+for(const off of [0, 25, -40, 60, -65]){
+  const {throws} = play(30 * D, off);
+  ok(throws.length === 1 && near(throws[0].h / D, off, 8), `thrown ${off} deg from forward: one throw, read ${throws[0] ? deg(throws[0].h) : 'nothing'} deg`);
 }
 {
-  const r = throwAt(30 * D, 0);
-  ok(r && r.power > 0.6, `a hard throw is hard: power ${r && r.power.toFixed(2)} (arc ${r && r.arc} deg/s)`);
+  const {throws} = play(0, 20, {hand: 'left'});
+  ok(throws.length === 1 && near(throws[0].h / D, 20, 8), `a left-hander's throw 20 deg right: read ${throws[0] ? deg(throws[0].h) : 'nothing'} deg`);
 }
 {
-  // a lob: released high (nose up), an easy arm. A bullet: released level, a fast arm.
-  const lob = throwAt(0, 0, {cock: 100 * D, through: 5 * D, dur: 0.32, acc: 9});
-  const bullet = throwAt(0, 0, {cock: 55 * D, through: -55 * D, dur: 0.13, acc: 30});
-  const touch = throwAt(0, 0, {cock: 80 * D, through: -20 * D, dur: 0.2, acc: 16});
-  ok(lob && lob.kind === 'LOB', `a high, easy release is a LOB: ${lob && lob.kind} (loft ${lob && (lob.loft / D).toFixed(0)} deg, power ${lob && lob.power.toFixed(2)}, nose ${lob && lob.el} deg)`);
-  ok(bullet && bullet.kind === 'BULLET', `a level, fast release is a BULLET: ${bullet && bullet.kind} (loft ${bullet && (bullet.loft / D).toFixed(0)} deg, power ${bullet && bullet.power.toFixed(2)}, nose ${bullet && bullet.el} deg)`);
-  ok(touch && touch.kind === 'TOUCH', `in between is TOUCH: ${touch && touch.kind} (loft ${touch && (touch.loft / D).toFixed(0)} deg)`);
-}
-{
-  const soft = throwAt(0, 0, {dur: 0.4, acc: 6});
-  ok(soft && soft.power < 0.4, `a soft toss is soft: power ${soft && soft.power.toFixed(2)}`);
-}
-{
-  const sp = throwAt(0, 10, {spin: 4 * Math.PI}), none = throwAt(0, 10, {spin: 0});
-  ok(sp && sp.spin > 0.5 && none && none.spin < 0.05, `a spiral reads as spin: ${sp && sp.spin.toFixed(2)} vs ${none && none.spin.toFixed(2)}`);
-  ok(sp && Math.abs(sp.h / D - 10) < 5, `the spiral does not move the aim: ${sp && (sp.h / D).toFixed(1)} deg`);
-}
-{
-  const b = throwAt(0, 10, {bias: 3});
-  ok(b && Math.abs(b.h / D - 10) < 5, `a gyro with a 3 deg/s bias still aims: ${b && (b.h / D).toFixed(1)} deg`);
+  const lob = play(0, 0, {cock: 100 * D, through: 5 * D, dur: 0.32, acc: 9}).throws[0];
+  const bullet = play(0, 0, {cock: 55 * D, through: -55 * D, dur: 0.13, acc: 30}).throws[0];
+  ok(lob && lob.kind === 'LOB', `a high, easy release is a LOB: ${lob && lob.kind} (power ${lob && lob.power.toFixed(2)}, nose ${lob && lob.el} deg)`);
+  ok(bullet && bullet.kind === 'BULLET', `a level, fast release is a BULLET: ${bullet && bullet.kind} (power ${bullet && bullet.power.toFixed(2)}, nose ${bullet && bullet.el} deg)`);
+  const hard = play(0, 0).throws[0], soft = play(0, 0, {dur: 0.4, acc: 6}).throws[0];
+  ok(hard && soft && hard.power > 0.6 && soft.power < 0.4, `a hard throw is hard (${hard && hard.power.toFixed(2)}), a soft toss soft (${soft && soft.power.toFixed(2)})`);
+  const sp = play(0, 10, {spin: 4 * Math.PI}).throws[0];
+  ok(sp && sp.spin > 0.5 && near(sp.h / D, 10, 8), `a spiral reads as spin (${sp && sp.spin.toFixed(2)}) and does not move the direction (${sp && deg(sp.h)} deg)`);
+  const b = play(0, 10, {bias: 3}).throws[0];
+  ok(b && near(b.h / D, 10, 8), `a gyro with a 3 deg/s bias: ${b && deg(b.h)} deg`);
 }
 
 console.log('not throws');
 {
-  ok(throwAt(0, 0, {unarmed: true, all: true}).length === 0, 'a throw while the game is not asking for one (between plays) is ignored');
-  ok(throwAt(0, 0, {dur: 1.2, acc: 1, all: true}).length === 0, 'lowering the phone slowly is not a throw');
-  // the wind-up alone: nose up and back, fast, past straight up
+  const un = play(0, 0, {unarmed: true});
+  ok(un.hikes.length === 0 && un.throws.length === 0, 'nothing counts while the game is not asking');
+  ok(play(0, 0, {dur: 1.2, acc: 1}).throws.length === 0, 'lowering the phone slowly is not a throw');
+  // armed for a throw: a fast wind-up (nose up and back, past straight up), then waving
   const seen = [], s = new T.ThrowSense({onThrow: r => seen.push(r)});
-  run(s, () => ({q: pose(0, 0.1, 0), acc: 0}), 0, 0.5); s.lock(); s.arm(true);
-  run(s, t => { const k = Math.min(1, (t - 0.5) / 0.15); return {q: pose(0, 0.1 + 1.9 * k, 0), acc: 12}; }, 0.5, 1.2);
-  ok(seen.length === 0, 'a fast wind-up (nose swinging up and back) is not a throw');
-  // waving the phone flat, side to side
+  run(s, () => ({q: pose(0, 0.1), acc: 0}), 0, 0.5); s.h0 = 0; s.arm('throw');
+  run(s, t => { const k = Math.min(1, (t - 0.5) / 0.15); return {q: pose(0, 0.1 + 1.9 * k), acc: 12}; }, 0.5, 1.2);
+  ok(seen.length === 0, 'a fast wind-up is not a throw');
   const w = new T.ThrowSense({onThrow: r => seen.push(r)});
-  run(w, () => ({q: pose(0, 0.1, 0), acc: 0}), 0, 0.5); w.lock(); w.arm(true);
-  run(w, t => ({q: pose(Math.sin((t - 0.5) * 14) * 0.9, 0.1, 0), acc: 8}), 0.5, 1.7);
+  run(w, () => ({q: pose(0, 0.1), acc: 0}), 0, 0.5); w.h0 = 0; w.arm('throw');
+  run(w, t => ({q: pose(Math.sin((t - 0.5) * 14) * 0.9, 0.1), acc: 8}), 0.5, 1.7);
   ok(seen.length === 0, 'waving the phone side to side is not a throw');
-  // two throws in a row both count
-  const two = new T.ThrowSense({onThrow: r => seen.push(r)});
-  seen.length = 0;
-  run(two, () => ({q: pose(0, 0.1, 0), acc: 0}), 0, 0.5); two.lock(); two.arm(true);
-  const arm = (t0) => t => { const u = Math.min(1, Math.max(0, (t - t0) / 0.18)), sm = u * u * (3 - 2 * u); return {q: pose(0, (t < t0 ? 1.3 * Math.min(1, (t - t0 + 0.5) / 0.3) : 1.3 - 1.8 * sm), 0), acc: 20 * Math.sin(Math.PI * u)}; };
-  run(two, arm(1.0), 0.5, 1.6); run(two, arm(2.4), 1.6, 3.0);
-  ok(seen.length === 2, `two throws, a second apart, are two throws (${seen.length})`);
+  // armed for the hike: waving the ready pose about is not a hike
+  const hk = [], h = new T.ThrowSense({onHike: x => hk.push(x)});
+  h.arm('hike');
+  run(h, t => ({q: T.qmul(T.qaxis(0, 0, 1, Math.sin(t * 12) * 0.8), ready(0)), acc: 6}), 0, 1.5);
+  ok(hk.length === 0, 'swinging the phone around in the ready pose (no lift) is not a hike');
 }
 {
-  // the spike: not armed, nose flung at the floor
   let spiked = 0;
   const s = new T.ThrowSense({onSpike: () => spiked++});
-  run(s, () => ({q: pose(0, 0.2, 0), acc: 0}), 0, 0.5);
-  run(s, t => { const u = Math.min(1, (t - 0.5) / 0.15); return {q: pose(0, 0.2 - u * 1.6, 0), acc: 20 * Math.sin(Math.PI * u)}; }, 0.5, 0.8);
-  ok(spiked === 1, `the spike gesture is seen once (${spiked})`);
-  const s2 = new T.ThrowSense({onSpike: () => spiked++});
+  run(s, () => ({q: pose(0, 0.2), acc: 0}), 0, 0.5);
+  run(s, t => { const u = Math.min(1, (t - 0.5) / 0.15); return {q: pose(0, 0.2 - u * 1.6), acc: 20 * Math.sin(Math.PI * u)}; }, 0.5, 0.8);
+  ok(spiked === 1, `the spike (nose flung at the floor) is seen once (${spiked})`);
   spiked = 0;
-  run(s2, t => ({q: pose(0, 0.2 - Math.min(1, t) * 1.5, 0), acc: 0.3}), 0, 2);
-  ok(spiked === 0, 'slowly pointing the phone at the floor is not a spike');
+  const s2 = new T.ThrowSense({onSpike: () => spiked++});
+  run(s2, t => ({q: pose(0, 0.2 - Math.min(1, t) * 1.5), acc: 0.3}), 0, 2);
+  ok(spiked === 0, 'slowly pointing the nose at the floor is not a spike');
 }
 {
-  // locking with the phone held up like a remote (nose to the ceiling, back toward the TV)
-  const s = new T.ThrowSense();
-  const tv = 40 * D;
-  const f = [Math.sin(tv), Math.cos(tv), 0];
-  // tipped back 10 degrees: exactly upright is the gimbal point of the browser's angles
-  const c = Math.cos(10 * D), sn = Math.sin(10 * D);
-  const y = [-f[0] * sn, -f[1] * sn, c], z = [-f[0] * c, -f[1] * c, -sn];
-  const q = fromFrame(cross(y, z), y, z);
-  run(s, () => ({q, acc: 0}), 0, 0.5);
-  s.lock();
-  const a = s.aim();
-  ok(Math.abs(a.h) < 0.05 && Math.abs(T.pointing(s.q).h - tv) < 0.05, `LOCK with the phone upright points at the TV (${(T.pointing(s.q).h / D).toFixed(1)} deg)`);
-}
-{
-  const sw = T.swipeThrow(60, -300, 120, 400), weak = T.swipeThrow(2, -10, 300, 400);
-  ok(sw && sw.h > 0.1 && sw.power > 0.5, `a fast swipe up and to the right: h ${sw && (sw.h / D).toFixed(0)} deg, power ${sw && sw.power.toFixed(2)}`);
-  ok(weak === null, 'a tap is not a swipe');
+  const fast = T.swipeThrow(60, -300, 120, 400), slow = T.swipeThrow(-80, -200, 500, 400), tap = T.swipeThrow(2, -10, 300, 400);
+  ok(fast && fast.h > 0.1 && fast.kind === 'BULLET', `a fast swipe up and right: ${fast && deg(fast.h)} deg, ${fast && fast.kind}`);
+  ok(slow && slow.h < -0.1 && slow.kind === 'LOB', `a slow swipe up and left: ${slow && deg(slow.h)} deg, ${slow && slow.kind}`);
+  ok(tap === null, 'a tap is not a swipe');
 }
 console.log(fails ? `\n${fails} FAILED` : '\nall good');
 process.exit(fails ? 1 : 0);
